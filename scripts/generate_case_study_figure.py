@@ -184,9 +184,16 @@ cmd.bg_color("white")
 
 # Load structure
 cmd.load("{pdb_path}", "protein")
-cmd.remove("not chain {chain_upper}")
+# ATLAS PDBs may have blank chain IDs — only filter chain if present
+if cmd.count_atoms("chain {chain_upper}") > 0:
+    cmd.remove("not chain {chain_upper}")
 cmd.remove("resn HOH")
 cmd.remove("not polymer.protein")
+# ATLAS PDBs from MD may have multiple models — keep only first
+cmd.split_states("protein", 1, 1)
+if cmd.count_atoms("protein_0001") > 0:
+    cmd.delete("protein")
+    cmd.set_name("protein_0001", "protein")
 
 # Store the view after orienting so all panels match
 cmd.orient("protein")
