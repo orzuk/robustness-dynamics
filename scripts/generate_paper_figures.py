@@ -1,0 +1,733 @@
+#!/usr/bin/env python3
+"""
+Generate all paper figures from analysis outputs.
+
+Reads unified_results.json for summary statistics and per-protein TSV
+files for distribution/scatter figures.
+
+Usage:
+  python generate_paper_figures.py \
+      --results unified_results.json \
+      --output-dir /path/to/paper_results
+  python generate_paper_figures.py --results ... --figure fig1
+"""
+
+import json
+import argparse
+import numpy as np
+import pandas as pd
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+from scipy import stats as scipy_stats
+
+from paper_config import (
+    DATASETS,
+    FIG1_PANELS, FIG2_PANELS,
+)
+
+# Global font settings for publication readability
+plt.rcParams.update({
+    "font.size": 15,
+    "axes.titlesize": 18,
+    "axes.labelsize": 16,
+    "xtick.labelsize": 14,
+    "ytick.labelsize": 14,
+    "legend.fontsize": 14,
+})
+
+
+# ============================================================================
+# HELPERS
+# ============================================================================
+
+def _load_per_protein_tsv(dataset, scorer, target) -> pd.DataFrame:
+    """Load per-protein correlations TSV for a run."""
+    from paper_config import AnalysisRun
+    run = AnalysisRun(dataset=dataset, scorer=scorer, target=target)
+    path = Path(run.per_protein_tsv_path)
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(path, sep="\t")
+
+
+def _load_pooled_data(dataset, scorer) -> pd.DataFrame:
+    """Load merged per-residue data for pooled scatter/density plots.
+
+    This loads the per-protein data files and concatenates them.
+    Each protein's data is z-scored within-protein.
+    Returns DataFrame with columns: robustness_z, target_z, protein_id.
+    """
+    ds = DATASETS[dataset]
+    rob_dir = Path(ds.robustness_dir) / scorer
+    data_dir = Path(ds.data_dir) / "proteins"
+
+    if not data_dir.exists():
+        return pd.DataFrame()
+
+    rows = []
+    for protein_dir in sorted(data_dir.iterdir()):
+        if not protein_dir.is_dir():
+            continue
+        pid = protein_dir.name
+
+        # Load robustness
+        rob_path = rob_dir / f"{pid}_robustness.tsv"
+        if not rob_path.exists():
+            continue
+        rob_df = pd.read_csv(rob_path, sep="\t")
+        if "std_ddg" not in rob_df.columns:
+            continue
+
+        # Load target
+        rmsf_path = list(protein_dir.glob("*_RMSF.tsv"))
+        bfac_path = list(protein_dir.glob("*_Bfactor.tsv"))
+
+        targets = {}
+        if rmsf_path:
+            rmsf_df = pd.read_csv(rmsf_path[0], sep="\t")
+            rmsf_cols = [c for c in rmsf_df.columns
+                         if c.lower().startswith("rmsf") or "r1" in c.lower()]
+            if rmsf_cols:
+                targets["rmsf"] = rmsf_df[rmsf_cols].mean(axis=1).values
+        if bfac_path:
+            bfac_df = pd.read_csv(bfac_path[0], sep="\t")
+            bfac_cols = [c for c in bfac_df.columns
+                         if "bfactor" in c.lower() or "b_factor" in c.lower()]
+            if bfac_cols:
+                targets["bfactor"] = bfac_df[bfac_cols[0]].values
+
+        rob = rob_df["std_ddg"].values
+        for tname, tvals in targets.items():
+            n = min(len(rob), len(tvals))
+            if n < 10:
+                continue
+            r, t = rob[:n], tvals[:n]
+            # Z-score within protein
+            r_z = (r - np.nanmean(r)) / (np.nanstd(r) + 1e-10)
+            t_z = (t - np.nanmean(t)) / (np.nanstd(t) + 1e-10)
+            for i in range(n):
+                if np.isfinite(r_z[i]) and np.isfinite(t_z[i]):
+                    rows.append({
+                        "robustness_z": r_z[i],
+                        "target_z": t_z[i],
+                        "robustness_raw": float(r[i]),
+                        "target_raw": float(t[i]),
+                        "target_type": tname,
+                        "protein_id": pid,
+                    })
+
+    return pd.DataFrame(rows)
+
+
+# ============================================================================
+# FIGURE 1: Per-protein correlation distributions (4 panels)
+# ============================================================================
+
+def generate_fig1(results: dict, output_dir: Path):
+    """Per-protein rho histograms + scatter plots, one row per dataset-target."""
+    n_panels = len(FIG1_PANELS)
+    fig, axes = plt.subplots(n_panels, 2, figsize=(12, 4 * n_panels))
+    if n_panels == 1:
+        axes = axes[np.newaxis, :]
+
+    for row_idx, (ds_name, target) in enumerate(FIG1_PANELS):
+        ds = DATASETS[ds_name]
+        if target == "rmsf":
+            target_label = "RMSF"
+        elif ds_name == "rci_s2":
+            target_label = r"$1{-}S^2_\mathrm{RCI}$"
+        else:
+            target_label = "B-factor"
+        panel_label = f"{ds.display_name} {target_label}"
+
+        # Histogram panel
+        ax_hist = axes[row_idx, 0]
+        ax_scat = axes[row_idx, 1]
+
+        # Load per-protein data for each scorer
+        for scorer, color, label in [
+            ("thermompnn", "tab:blue", "ThMPNN"),
+            ("esm1v", "tab:green", "ESM-1v"),
+        ]:
+            if scorer not in ds.available_scorers:
+                continue
+            pp = _load_per_protein_tsv(ds_name, scorer, target)
+            if pp.empty:
+                continue
+
+            # Determine the rho column name
+            rho_candidates = [
+                f"rho_std_ddg_{target}",
+                "rho_robustness_bfactor_target" if target == "bfactor" else "rho_std_ddg_rmsf",
+            ]
+            rho_col = next((c for c in rho_candidates if c in pp.columns), None)
+            if rho_col is None:
+                for c in pp.columns:
+                    if "rho" in c and ("std_ddg" in c or "robustness_bfactor" in c):
+                        rho_col = c
+                        break
+            if rho_col is None or rho_col not in pp.columns:
+                continue
+
+            vals = pp[rho_col].dropna()
+            ax_hist.hist(vals, bins=30, alpha=0.5, color=color, label=label)
+
+        # pLDDT (from ThermoMPNN run)
+        if ds.has_plddt:
+            pp_th = _load_per_protein_tsv(ds_name, "thermompnn", target)
+            if not pp_th.empty:
+                plddt_col = f"rho_plddt_{target}"
+                if plddt_col not in pp_th.columns:
+                    plddt_col = "rho_plddt_rmsf" if target == "rmsf" else "rho_plddt_bfactor"
+                if plddt_col in pp_th.columns:
+                    vals = pp_th[plddt_col].dropna()
+                    ax_hist.hist(vals, bins=30, alpha=0.5, color="tab:orange", label="pLDDT")
+
+                    # Scatter: robustness rho vs pLDDT rho
+                    rob_candidates = [
+                        f"rho_std_ddg_{target}",
+                        "rho_robustness_bfactor_target" if target == "bfactor" else "rho_std_ddg_rmsf",
+                    ]
+                    rob_col = next((c for c in rob_candidates if c in pp_th.columns), None)
+                    if rob_col is None:
+                        for c in pp_th.columns:
+                            if "rho" in c and ("std_ddg" in c or "robustness_bfactor" in c):
+                                rob_col = c
+                                break
+                    if rob_col:
+                        both = pp_th[[rob_col, plddt_col]].dropna()
+                        ax_scat.scatter(both[rob_col], both[plddt_col],
+                                        alpha=0.3, s=10, c="tab:blue")
+                        lim = [-1, 1]
+                        ax_scat.plot(lim, lim, "k--", alpha=0.5)
+                        ax_scat.set_xlim(lim)
+                        ax_scat.set_ylim(lim)
+                        ax_scat.set_xlabel(r"$\rho$(rob, target)")
+                        ax_scat.set_ylabel(r"$\rho$(pLDDT, target)")
+        else:
+            ax_scat.text(0.5, 0.5, "No pLDDT\navailable",
+                         transform=ax_scat.transAxes,
+                         ha="center", va="center", fontsize=13, color="gray")
+            ax_scat.set_xlim([-1, 1])
+            ax_scat.set_ylim([-1, 1])
+            ax_scat.set_xlabel(r"$\rho$(rob, target)")
+            ax_scat.set_ylabel(r"$\rho$(pLDDT, target)")
+
+        ax_hist.set_title(panel_label, fontweight="bold")
+        ax_hist.set_xlabel(r"Per-protein Spearman $\rho$")
+        ax_hist.set_ylabel("Count")
+        ax_hist.set_xlim([-1, 1])
+
+        # Legend only on first panel, no frame
+        if row_idx == 0:
+            ax_hist.legend(frameon=False)
+
+    plt.tight_layout()
+    for ext in ["pdf", "png"]:
+        fig.savefig(output_dir / f"fig1_per_protein_correlations.{ext}",
+                    dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  Generated fig1_per_protein_correlations")
+
+
+# ============================================================================
+# FIGURE 2: 2D density scatter with marginals (4 panels)
+# ============================================================================
+
+TARGET_UNITS = {
+    "rmsf": r"RMSF ($\AA$)",
+    "bfactor": r"B-factor ($\AA^2$)",
+}
+
+
+def _density_scatter_panels(panels, fig, use_raw: bool):
+    """Shared logic for Fig 2 and Supp Fig 1: hexbin + marginals.
+
+    Parameters
+    ----------
+    panels : list of (ds_name, target) tuples
+    fig : matplotlib Figure
+    use_raw : if True, plot raw units; if False, plot z-scored
+    """
+    n_panels = len(panels)
+    n_cols = 2
+    n_rows = (n_panels + n_cols - 1) // n_cols
+
+    for panel_idx, (ds_name, target) in enumerate(panels):
+        ds = DATASETS[ds_name]
+        if target == "rmsf":
+            target_label = "RMSF"
+        elif ds_name == "rci_s2":
+            target_label = r"$1{-}S^2_\mathrm{RCI}$"
+        else:
+            target_label = "B-factor"
+
+        pooled = _load_pooled_data(ds_name, "thermompnn")
+        if pooled.empty:
+            continue
+
+        target_data = pooled[pooled["target_type"] == target]
+        if target_data.empty:
+            continue
+
+        n_max = 50000
+        if len(target_data) > n_max:
+            target_data = target_data.sample(n_max, random_state=42)
+
+        if use_raw:
+            x = target_data["robustness_raw"].values
+            y = target_data["target_raw"].values
+            x_label = r"$\operatorname{std}(\Delta\Delta G)$ (kcal/mol)"
+            if ds_name == "rci_s2":
+                y_label = r"$1 - S^2_\mathrm{RCI}$"
+            else:
+                y_label = TARGET_UNITS.get(target, target_label)
+        else:
+            x = target_data["robustness_z"].values
+            y = target_data["target_z"].values
+            x_label = r"$\operatorname{std}(\Delta\Delta G)$ (z-scored)"
+            y_label = f"{target_label} (z-scored)"
+
+        y_clip = np.percentile(y, 99)
+        y_floor = np.percentile(y, 1)
+
+        row = panel_idx // n_cols
+        col = panel_idx % n_cols
+
+        gs_inner = GridSpec(
+            4, 4, figure=fig,
+            left=0.07 + 0.48 * col, right=0.07 + 0.48 * col + 0.40,
+            bottom=0.07 + (1.0 / n_rows) * (n_rows - 1 - row),
+            top=0.07 + (1.0 / n_rows) * (n_rows - 1 - row) + (0.85 / n_rows),
+            hspace=0.05, wspace=0.05,
+        )
+
+        ax_main = fig.add_subplot(gs_inner[1:, :-1])
+        ax_top = fig.add_subplot(gs_inner[0, :-1], sharex=ax_main)
+        ax_right = fig.add_subplot(gs_inner[1:, -1], sharey=ax_main)
+
+        mask = (y >= y_floor) & (y <= y_clip)
+        hb = ax_main.hexbin(x[mask], y[mask], gridsize=40, cmap="Blues",
+                             mincnt=1, linewidths=0.2)
+        cb = fig.colorbar(hb, ax=ax_right, pad=0.1, shrink=0.8)
+        cb.set_label("Count", fontsize=11)
+        cb.ax.tick_params(labelsize=10)
+        ax_main.set_xlabel(x_label)
+        ax_main.set_ylabel(y_label)
+        ax_main.set_ylim(y_floor, y_clip)
+
+        ax_top.hist(x, bins=50, color="tab:blue", alpha=0.7, density=True)
+        ax_top.set_ylabel("Density")
+        plt.setp(ax_top.get_xticklabels(), visible=False)
+
+        ax_right.hist(y[mask], bins=50, orientation="horizontal",
+                       color="tab:orange", alpha=0.7, density=True)
+        ax_right.set_xlabel("Density")
+        plt.setp(ax_right.get_yticklabels(), visible=False)
+
+        rho = scipy_stats.spearmanr(x, y)[0]
+        ax_top.set_title(f"{ds.display_name} {target_label} "
+                         f"($\\rho = {rho:.3f}$, $n = {len(x):,}$)",
+                         fontsize=14, fontweight="bold")
+
+
+def generate_fig2(results: dict, output_dir: Path):
+    """2D density scatter plots with marginal distributions, one per dataset-target."""
+    n_panels = len(FIG2_PANELS)
+    n_rows = (n_panels + 1) // 2
+    fig = plt.figure(figsize=(20, 9 * n_rows))
+    _density_scatter_panels(FIG2_PANELS, fig, use_raw=False)
+    for ext in ["pdf", "png"]:
+        fig.savefig(output_dir / f"fig2_density_scatter.{ext}",
+                    dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  Generated fig2_density_scatter")
+
+
+# ============================================================================
+# FIGURE 3 (merged): Model comparison (left) + Ridge coefficients (right)
+#   3 rows: RMSF, B-factor, NMR.  2 columns: CV R², coefficients.
+# ============================================================================
+
+def generate_fig3(results: dict, output_dir: Path):
+    """3x2 merged figure: model CV R² (left) and 24-feature Ridge
+    coefficients with error bars (right), one row per target type."""
+
+    model_display = {
+        "ols_std_ddg": r"std($\Delta\Delta G$)",
+        "ols_mean_abs_ddg": r"mean|$\Delta\Delta G$|",
+        "ols_plddt": "pLDDT",
+        "ols_sasa": "SASA",
+        "ols_std_plddt": "std+pLDDT",
+        "ridge_20ddg": r"20 $\Delta\Delta G$",
+        "ridge_nonlinear_only": "4 NL",
+        "ridge_20ddg_nonlinear": "20+NL",
+        "ridge_20ddg_plddt": "20+pLDDT",
+        "ridge_20ddg_nonlinear_plddt": "20+NL+pLDDT",
+    }
+
+    AA_ORDER = list("ACDEFGHIKLMNPQRSTVWY")
+    NONLINEAR_NAMES = ["std_ddg", "mean|DDG|", "max|DDG|", "min_ddg"]
+    NONLINEAR_LABELS = [
+        r"std($\Delta\Delta G$)",
+        r"mean|$\Delta\Delta G$|",
+        r"max|$\Delta\Delta G$|",
+        r"min($\Delta\Delta G$)",
+    ]
+    ALL_FEATURES = AA_ORDER + NONLINEAR_NAMES
+    ALL_LABELS = AA_ORDER + NONLINEAR_LABELS
+    COEF_MODEL = "ridge_20ddg_nonlinear"
+
+    # 3 rows: RMSF, B-factor, NMR
+    row_configs = [
+        ("RMSF", "rmsf", [
+            ("atlas", "tab:blue", "ATLAS"),
+            ("bbflow", "tab:orange", "BBFlow"),
+        ]),
+        ("B-factor", "bfactor", [
+            ("atlas", "tab:blue", "ATLAS"),
+            ("pdb_designs", "tab:green", "PDB designs"),
+        ]),
+        (r"NMR ($1 - S^2_\mathrm{RCI}$)", "bfactor", [
+            ("rci_s2", "tab:purple", r"$S^2_\mathrm{RCI}$"),
+        ]),
+    ]
+
+    fig, axes = plt.subplots(3, 2, figsize=(22, 18),
+                             gridspec_kw={"width_ratios": [1, 1.8]})
+
+    for row_idx, (title, target, dataset_list) in enumerate(row_configs):
+        # ---- Left: CV R² model comparison ----
+        ax_r2 = axes[row_idx, 0]
+
+        all_model_names = []
+        for mname in model_display:
+            for ds_name, _, _ in dataset_list:
+                run_key = f"{ds_name}_thermompnn_{target}"
+                run = results.get("runs", {}).get(run_key, {})
+                models = run.get("multi_ddg", {}).get("models", {})
+                if mname in models:
+                    if mname not in all_model_names:
+                        all_model_names.append(mname)
+                    break
+
+        if all_model_names:
+            n_models = len(all_model_names)
+            n_datasets = len(dataset_list)
+            bar_width = 0.8 / n_datasets
+            x = np.arange(n_models)
+
+            for ds_idx, (ds_name, color, label) in enumerate(dataset_list):
+                run_key = f"{ds_name}_thermompnn_{target}"
+                run = results.get("runs", {}).get(run_key, {})
+                models = run.get("multi_ddg", {}).get("models", {})
+
+                r2_vals = []
+                r2_stds = []
+                for mname in all_model_names:
+                    m = models.get(mname, {})
+                    r2_vals.append(m.get("cv_r2_mean", 0) or 0)
+                    r2_stds.append(m.get("cv_r2_std", 0) or 0)
+
+                offset = (ds_idx - (n_datasets - 1) / 2) * bar_width
+                ax_r2.bar(x + offset, r2_vals, bar_width, yerr=r2_stds,
+                          color=color, alpha=0.8, capsize=2, label=label)
+
+            display_names = [model_display[m] for m in all_model_names]
+            ax_r2.set_xticks(x)
+            ax_r2.set_xticklabels(display_names, rotation=45, ha="right")
+
+        ax_r2.set_ylabel("CV $R^2$")
+        ax_r2.set_title(f"{title}: model comparison", fontweight="bold")
+        # Legend on every left panel (datasets differ by row)
+        ax_r2.legend(frameon=False)
+
+        # ---- Right: 24-feature Ridge coefficients with error bars ----
+        ax_coef = axes[row_idx, 1]
+        n_series = len(dataset_list)
+        width = 0.8 / n_series
+        # Add gap between AA and nonlinear features
+        x_coef = np.arange(len(ALL_FEATURES), dtype=float)
+        x_coef[len(AA_ORDER):] += 1.0  # shift NL features right by 1 unit
+
+        for series_idx, (ds_name, color, label) in enumerate(dataset_list):
+            run_key = f"{ds_name}_thermompnn_{target}"
+            run = results.get("runs", {}).get(run_key, {})
+            models = run.get("multi_ddg", {}).get("models", {})
+            ridge = models.get(COEF_MODEL, {})
+            coefs = ridge.get("feature_coefs_mean")
+            if not coefs:
+                continue
+
+            feat_names = ridge.get("feature_names", [])
+            coef_dict = dict(zip(feat_names, coefs))
+            vals = [coef_dict.get(f, 0) for f in ALL_FEATURES]
+
+            # Error bars: prefer theoretical SE, fallback to CV std
+            coefs_se = ridge.get("feature_coefs_se")
+            coefs_std = ridge.get("feature_coefs_std")
+            err_source = coefs_se or coefs_std
+            if err_source:
+                err_dict = dict(zip(feat_names, err_source))
+                errs = [2 * err_dict.get(f, 0) for f in ALL_FEATURES]
+            else:
+                errs = None
+
+            offset = (series_idx - (n_series - 1) / 2) * width
+            ax_coef.bar(x_coef + offset, vals, width, yerr=errs,
+                        color=color, alpha=0.8, capsize=2, label=label)
+
+        ax_coef.set_xticks(x_coef)
+        ax_coef.set_xticklabels(ALL_LABELS, rotation=45, ha="right")
+        ax_coef.set_ylabel("Ridge coefficient")
+        ax_coef.set_title(f"{title}: Ridge coefficients (20 AA + 4 NL)",
+                          fontweight="bold")
+        ax_coef.axhline(0, color="gray", linewidth=0.5)
+        # Vertical separator: darker line in the gap between AA and NL
+        sep_x = len(AA_ORDER) - 0.5 + 0.5  # midpoint of the gap
+        ax_coef.axvline(sep_x, color="black", linewidth=1.2,
+                        linestyle="-", alpha=0.7)
+        # No legend on right panels (same colors as left)
+
+    plt.tight_layout()
+    for ext in ["pdf", "png"]:
+        fig.savefig(output_dir / f"fig3_model_comparison.{ext}",
+                    dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  Generated fig3_model_comparison")
+
+
+def generate_fig4(results: dict, output_dir: Path):
+    """Kept as no-op; merged into fig3."""
+    print("  (fig4 merged into fig3, skipping)")
+
+
+def generate_supp_fig1(results: dict, output_dir: Path):
+    """Raw (un-normalized) density scatter -- same layout as Fig 2 but raw units."""
+    n_panels = len(FIG2_PANELS)
+    n_rows = (n_panels + 1) // 2
+    fig = plt.figure(figsize=(20, 9 * n_rows))
+    _density_scatter_panels(FIG2_PANELS, fig, use_raw=True)
+    for ext in ["pdf", "png"]:
+        fig.savefig(output_dir / f"supp_fig1_raw_scatter.{ext}",
+                    dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  Generated supp_fig1_raw_scatter")
+
+
+def generate_supp_fig2(results: dict, output_dir: Path):
+    """When does robustness beat pLDDT? + Stratify by protein flexibility."""
+
+    # -- Panel A: characterize proteins where |rho_rob| > |rho_plddt| --
+    # -- Panel B: rho vs mean target (protein flexibility) --
+
+    panels = []
+    for ds_name, target in FIG2_PANELS:
+        ds = DATASETS[ds_name]
+        pp = _load_per_protein_tsv(ds_name, "thermompnn", target)
+        if pp.empty:
+            continue
+
+        # Determine rho column names
+        if target == "rmsf":
+            rho_rob_col = "rho_std_ddg_rmsf"
+            rho_plddt_col = "rho_plddt_rmsf"
+        else:
+            rho_rob_col = "rho_robustness_bfactor_target"
+            if rho_rob_col not in pp.columns:
+                rho_rob_col = "rho_std_ddg_bfactor"
+            rho_plddt_col = "rho_plddt_bfactor"
+
+        if rho_rob_col not in pp.columns or rho_plddt_col not in pp.columns:
+            continue
+
+        if target == "rmsf":
+            target_label = "RMSF"
+        elif ds_name == "rci_s2":
+            target_label = r"$1{-}S^2_\mathrm{RCI}$"
+        else:
+            target_label = "B-factor"
+
+        # Compute mean target per protein from raw per-residue data
+        pooled = _load_pooled_data(ds_name, "thermompnn")
+        if pooled.empty:
+            continue
+        target_data = pooled[pooled["target_type"] == target]
+        if target_data.empty:
+            continue
+        mean_target = target_data.groupby("protein_id")["target_raw"].mean()
+
+        panels.append({
+            "ds_name": ds_name, "target": target,
+            "ds": ds, "target_label": target_label,
+            "pp": pp, "rho_rob_col": rho_rob_col,
+            "rho_plddt_col": rho_plddt_col,
+            "mean_target": mean_target,
+        })
+
+    if not panels:
+        print("  No data for supp_fig2")
+        return
+
+    n = len(panels)
+    fig, axes = plt.subplots(n, 2, figsize=(14, 4.5 * n), squeeze=False)
+
+    for i, p in enumerate(panels):
+        pp = p["pp"]
+        rho_rob = pp[p["rho_rob_col"]].values
+        rho_plddt = pp[p["rho_plddt_col"]].values
+        valid = np.isfinite(rho_rob) & np.isfinite(rho_plddt)
+        rho_rob = rho_rob[valid]
+        rho_plddt = rho_plddt[valid]
+        pids = pp["protein_id"].values[valid]
+        n_res = pp["n_residues_used"].values[valid]
+
+        rob_wins = np.abs(rho_rob) > np.abs(rho_plddt)
+
+        # --- Panel A: What characterizes proteins where robustness wins? ---
+        ax_a = axes[i, 0]
+
+        ax_a.scatter(n_res[~rob_wins], np.abs(rho_rob[~rob_wins]),
+                     alpha=0.3, s=15, c="tab:blue", label="pLDDT wins")
+        ax_a.scatter(n_res[rob_wins], np.abs(rho_rob[rob_wins]),
+                     alpha=0.5, s=25, c="tab:red", marker="^",
+                     label="Robustness wins")
+
+        frac = rob_wins.sum() / len(rob_wins) * 100
+        # Median size comparison
+        med_win = np.median(n_res[rob_wins]) if rob_wins.sum() > 0 else 0
+        med_lose = np.median(n_res[~rob_wins]) if (~rob_wins).sum() > 0 else 0
+
+        ax_a.set_xlabel("Protein length (residues)")
+        ax_a.set_ylabel(r"Per-protein $|\rho|$ (robustness, target)")
+        ax_a.set_title(
+            f"{p['ds'].display_name} {p['target_label']}\n"
+            f"Robustness wins: {frac:.0f}% "
+            f"(med. length {med_win:.0f} vs {med_lose:.0f})",
+            fontsize=13)
+        ax_a.legend(fontsize=11)
+
+        # --- Panel B: rho vs mean target (protein flexibility) ---
+        ax_b = axes[i, 1]
+
+        # Match per-protein rho to mean target
+        mean_tgt_vals = []
+        rho_vals = []
+        plddt_vals = []
+        for j, pid in enumerate(pids):
+            if pid in p["mean_target"].index:
+                mean_tgt_vals.append(p["mean_target"][pid])
+                rho_vals.append(rho_rob[j])
+                plddt_vals.append(rho_plddt[j])
+        mean_tgt_vals = np.array(mean_tgt_vals)
+        rho_vals = np.array(rho_vals)
+        plddt_vals = np.array(plddt_vals)
+
+        if len(mean_tgt_vals) > 5:
+            # Bin by flexibility terciles
+            t1, t2 = np.percentile(mean_tgt_vals, [33, 67])
+            rigid = mean_tgt_vals <= t1
+            medium = (mean_tgt_vals > t1) & (mean_tgt_vals <= t2)
+            flexible = mean_tgt_vals > t2
+
+            categories = [
+                ("Rigid", rigid, "tab:blue"),
+                ("Medium", medium, "tab:gray"),
+                ("Flexible", flexible, "tab:red"),
+            ]
+
+            positions = np.arange(len(categories))
+            bar_w = 0.35
+            rob_medians = []
+            plddt_medians = []
+            for label, mask, color in categories:
+                rob_medians.append(np.median(np.abs(rho_vals[mask])))
+                plddt_medians.append(np.median(np.abs(plddt_vals[mask])))
+
+            ax_b.bar(positions - bar_w / 2, rob_medians, bar_w,
+                     color="tab:blue", alpha=0.8, label="Robustness")
+            ax_b.bar(positions + bar_w / 2, plddt_medians, bar_w,
+                     color="tab:orange", alpha=0.8, label="pLDDT")
+
+            cat_labels = []
+            for label, mask, _ in categories:
+                cat_labels.append(f"{label}\n(n={mask.sum()})")
+            ax_b.set_xticks(positions)
+            ax_b.set_xticklabels(cat_labels)
+            ax_b.set_ylabel(r"Median per-protein $|\rho|$")
+            ax_b.set_title(
+                f"{p['ds'].display_name} {p['target_label']}\n"
+                f"by protein flexibility tercile",
+                fontsize=13)
+            ax_b.legend(fontsize=11)
+
+            # Add text with gap
+            for k, (rob_m, plddt_m) in enumerate(zip(rob_medians,
+                                                      plddt_medians)):
+                gap = plddt_m - rob_m
+                y_pos = max(rob_m, plddt_m) + 0.02
+                ax_b.text(k, y_pos, f"gap={gap:.2f}",
+                          ha="center", fontsize=9, color="gray")
+
+    plt.tight_layout()
+    for ext in ["pdf", "png"]:
+        fig.savefig(output_dir / f"supp_fig2_robustness_vs_plddt.{ext}",
+                    dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  Generated supp_fig2_robustness_vs_plddt")
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+FIGURE_GENERATORS = {
+    "fig1": ("Fig 1 (per-protein correlations)", generate_fig1),
+    "fig2": ("Fig 2 (density scatter)", generate_fig2),
+    "fig3": ("Fig 3 (model comparison)", generate_fig3),
+    "fig4": ("Fig 4 (DDG coefficients)", generate_fig4),
+    "supp_fig1": ("Supp Fig 1 (raw scatter)", generate_supp_fig1),
+    "supp_fig2": ("Supp Fig 2 (robustness vs pLDDT characterization)",
+                  generate_supp_fig2),
+}
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate paper figures")
+    from paper_config import CLUSTER
+    default_base = CLUSTER.paper_results_dir
+    parser.add_argument("--results", type=str,
+                        default=f"{default_base}/unified_results.json",
+                        help="Path to unified_results.json")
+    parser.add_argument("--output-dir", type=str, default=default_base,
+                        help="Base output directory (figures go into Figures/ subdirectory)")
+    parser.add_argument("--figure", type=str, default=None,
+                        help="Generate only this figure (e.g., 'fig1')")
+    args = parser.parse_args()
+
+    with open(args.results) as f:
+        results = json.load(f)
+
+    out_dir = Path(args.output_dir) / "Figures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    figs_to_gen = FIGURE_GENERATORS
+    if args.figure:
+        figs_to_gen = {args.figure: FIGURE_GENERATORS[args.figure]}
+
+    for fig_id, (description, generator) in figs_to_gen.items():
+        print(f"Generating {description}...")
+        try:
+            generator(results, out_dir)
+        except Exception as e:
+            print(f"  ERROR: {e}")
+
+    print("Done.")
+
+
+if __name__ == "__main__":
+    main()

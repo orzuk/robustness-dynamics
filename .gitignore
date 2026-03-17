@@ -1,0 +1,37 @@
+# Local notes and draft tracking (not for public repo)
+*.txt
+!requirements.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Data outputs (large, generated on cluster)
+data/
+results/
+figures/
+tables/
+*.json
+
+# Environment
+.env
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
