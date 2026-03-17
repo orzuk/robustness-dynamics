@@ -170,102 +170,106 @@ def generate_pymol_script(pdb_path: str, protein_id: str, chain: str,
 # Protein: {protein_id}
 # Run: pymol -cq {protein_id}_pymol_script.pml
 
-import pymol
-from pymol import cmd
+# Wrap in a function so if/else works in .pml files
+def run():
+    import pymol
+    from pymol import cmd
 
-# Settings for publication quality
-cmd.set("ray_opaque_background", 1)
-cmd.set("ray_shadows", 0)
-cmd.set("antialias", 2)
-cmd.set("cartoon_fancy_helices", 1)
-cmd.set("cartoon_smooth_loops", 1)
-cmd.set("spec_reflect", 0.3)
-cmd.bg_color("white")
+    # Settings for publication quality
+    cmd.set("ray_opaque_background", 1)
+    cmd.set("ray_shadows", 0)
+    cmd.set("antialias", 2)
+    cmd.set("cartoon_fancy_helices", 1)
+    cmd.set("cartoon_smooth_loops", 1)
+    cmd.set("spec_reflect", 0.3)
+    cmd.bg_color("white")
 
-# Load structure
-cmd.load("{pdb_path}", "protein")
-# ATLAS PDBs may have blank chain IDs — only filter chain if present
-if cmd.count_atoms("chain {chain_upper}") > 0:
-    cmd.remove("not chain {chain_upper}")
-cmd.remove("resn HOH")
-cmd.remove("not polymer.protein")
-# ATLAS PDBs from MD may have multiple models — keep only first
-cmd.split_states("protein", 1, 1)
-if cmd.count_atoms("protein_0001") > 0:
-    cmd.delete("protein")
-    cmd.set_name("protein_0001", "protein")
+    # Load structure
+    cmd.load("{pdb_path}", "prot")
+    # ATLAS PDBs may have blank chain IDs — only filter chain if present
+    if cmd.count_atoms("chain {chain_upper}") > 0:
+        cmd.remove("not chain {chain_upper}")
+    cmd.remove("resn HOH")
+    cmd.remove("not polymer.protein")
+    # ATLAS PDBs from MD may have multiple models — keep only first
+    n_states = cmd.count_states("prot")
+    if n_states > 1:
+        cmd.split_states("prot", 1, 1)
+        cmd.delete("prot")
+        cmd.set_name("prot_0001", "prot")
 
-# Store the view after orienting so all panels match
-cmd.orient("protein")
-cmd.turn("y", 0)  # adjust rotation if needed
-stored_view = cmd.get_view()
+    # Store the view after orienting so all panels match
+    cmd.orient("prot")
+    stored_view = cmd.get_view()
 
-# ========== Panel A: Robustness index ==========
-cmd.create("rob", "protein")
-cmd.alter("rob", "b=0")
+    # ========== Panel A: Robustness index ==========
+    cmd.create("rob", "prot")
+    cmd.alter("rob", "b=0")
 """
     for pos, val in sorted(rob_vals.items()):
         if np.isfinite(val):
-            pml += f'cmd.alter("rob and resi {pos}", "b={val:.4f}")\n'
+            pml += f'    cmd.alter("rob and resi {pos}", "b={val:.4f}")\n'
 
     pml += f"""
-cmd.rebuild("rob")
-cmd.show("cartoon", "rob")
-cmd.cartoon("putty", "rob")
-cmd.set("cartoon_putty_scale_min", 0.4, "rob")
-cmd.set("cartoon_putty_scale_max", 2.5, "rob")
-cmd.set("cartoon_putty_scale_power", 1.0, "rob")
-# High std_ddg (sensitive) = blue, low (robust) = red
-cmd.spectrum("b", "red_white_blue", "rob", minimum={rob_min:.3f}, maximum={rob_max:.3f})
-cmd.set_view(stored_view)
-cmd.ray({width}, {height})
-cmd.png("{out / f'{protein_id}_panel_A_robustness.png'}", width={width}, height={height})
-cmd.disable("rob")
+    cmd.rebuild("rob")
+    cmd.show("cartoon", "rob")
+    cmd.cartoon("putty", "rob")
+    cmd.set("cartoon_putty_scale_min", 0.4, "rob")
+    cmd.set("cartoon_putty_scale_max", 2.5, "rob")
+    cmd.set("cartoon_putty_scale_power", 1.0, "rob")
+    # High std_ddg (sensitive) = blue, low (robust) = red
+    cmd.spectrum("b", "red_white_blue", "rob", minimum={rob_min:.3f}, maximum={rob_max:.3f})
+    cmd.set_view(stored_view)
+    cmd.ray({width}, {height})
+    cmd.png("{out / f'{protein_id}_panel_A_robustness.png'}", width={width}, height={height})
+    cmd.disable("rob")
 
-# ========== Panel B: RMSF ==========
-cmd.create("rmsf_obj", "protein")
-cmd.alter("rmsf_obj", "b=0")
+    # ========== Panel B: RMSF ==========
+    cmd.create("rmsf_obj", "prot")
+    cmd.alter("rmsf_obj", "b=0")
 """
     for pos, val in sorted(rmsf_vals.items()):
         if np.isfinite(val):
-            pml += f'cmd.alter("rmsf_obj and resi {pos}", "b={val:.4f}")\n'
+            pml += f'    cmd.alter("rmsf_obj and resi {pos}", "b={val:.4f}")\n'
 
     pml += f"""
-cmd.rebuild("rmsf_obj")
-cmd.show("cartoon", "rmsf_obj")
-cmd.cartoon("putty", "rmsf_obj")
-cmd.set("cartoon_putty_scale_min", 0.4, "rmsf_obj")
-cmd.set("cartoon_putty_scale_max", 2.5, "rmsf_obj")
-cmd.set("cartoon_putty_scale_power", 1.0, "rmsf_obj")
-# High RMSF (flexible) = red, low (rigid) = blue
-cmd.spectrum("b", "blue_white_red", "rmsf_obj", minimum={rmsf_min:.3f}, maximum={rmsf_max:.3f})
-cmd.set_view(stored_view)
-cmd.ray({width}, {height})
-cmd.png("{out / f'{protein_id}_panel_B_rmsf.png'}", width={width}, height={height})
-cmd.disable("rmsf_obj")
+    cmd.rebuild("rmsf_obj")
+    cmd.show("cartoon", "rmsf_obj")
+    cmd.cartoon("putty", "rmsf_obj")
+    cmd.set("cartoon_putty_scale_min", 0.4, "rmsf_obj")
+    cmd.set("cartoon_putty_scale_max", 2.5, "rmsf_obj")
+    cmd.set("cartoon_putty_scale_power", 1.0, "rmsf_obj")
+    # High RMSF (flexible) = red, low (rigid) = blue
+    cmd.spectrum("b", "blue_white_red", "rmsf_obj", minimum={rmsf_min:.3f}, maximum={rmsf_max:.3f})
+    cmd.set_view(stored_view)
+    cmd.ray({width}, {height})
+    cmd.png("{out / f'{protein_id}_panel_B_rmsf.png'}", width={width}, height={height})
+    cmd.disable("rmsf_obj")
 
-# ========== Panel C: pLDDT ==========
-cmd.create("plddt_obj", "protein")
-cmd.alter("plddt_obj", "b=0")
+    # ========== Panel C: pLDDT ==========
+    cmd.create("plddt_obj", "prot")
+    cmd.alter("plddt_obj", "b=0")
 """
     for pos, val in sorted(plddt_vals.items()):
         if np.isfinite(val):
-            pml += f'cmd.alter("plddt_obj and resi {pos}", "b={val:.4f}")\n'
+            pml += f'    cmd.alter("plddt_obj and resi {pos}", "b={val:.4f}")\n'
 
     pml += f"""
-cmd.rebuild("plddt_obj")
-cmd.show("cartoon", "plddt_obj")
-cmd.cartoon("putty", "plddt_obj")
-cmd.set("cartoon_putty_scale_min", 0.4, "plddt_obj")
-cmd.set("cartoon_putty_scale_max", 2.5, "plddt_obj")
-cmd.set("cartoon_putty_scale_power", 1.0, "plddt_obj")
-# High pLDDT (confident/rigid) = blue, low (flexible) = red
-cmd.spectrum("b", "red_white_blue", "plddt_obj", minimum={plddt_min:.3f}, maximum={plddt_max:.3f})
-cmd.set_view(stored_view)
-cmd.ray({width}, {height})
-cmd.png("{out / f'{protein_id}_panel_C_plddt.png'}", width={width}, height={height})
+    cmd.rebuild("plddt_obj")
+    cmd.show("cartoon", "plddt_obj")
+    cmd.cartoon("putty", "plddt_obj")
+    cmd.set("cartoon_putty_scale_min", 0.4, "plddt_obj")
+    cmd.set("cartoon_putty_scale_max", 2.5, "plddt_obj")
+    cmd.set("cartoon_putty_scale_power", 1.0, "plddt_obj")
+    # High pLDDT (confident/rigid) = blue, low (flexible) = red
+    cmd.spectrum("b", "red_white_blue", "plddt_obj", minimum={plddt_min:.3f}, maximum={plddt_max:.3f})
+    cmd.set_view(stored_view)
+    cmd.ray({width}, {height})
+    cmd.png("{out / f'{protein_id}_panel_C_plddt.png'}", width={width}, height={height})
 
-cmd.quit()
+    cmd.quit()
+
+run()
 """
     return pml
 
