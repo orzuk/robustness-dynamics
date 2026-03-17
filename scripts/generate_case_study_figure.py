@@ -166,15 +166,16 @@ def generate_pymol_script(pdb_path: str, protein_id: str, chain: str,
     plddt_min = np.nanpercentile(list(plddt_vals.values()), 2)
     plddt_max = np.nanpercentile(list(plddt_vals.values()), 98)
 
-    pml = f"""# Auto-generated PyMOL script for case study figure
+    pml = f"""#!/usr/bin/env python3
+# Auto-generated PyMOL render script for case study figure
 # Protein: {protein_id}
-# Run: pymol -cq {protein_id}_pymol_script.pml
+# Run: python {protein_id}_pymol_render.py
 
-# Wrap in a function so if/else works in .pml files
+import pymol
+pymol.finish_launching(["pymol", "-cq"])
+from pymol import cmd
+
 def run():
-    import pymol
-    from pymol import cmd
-
     # Settings for publication quality
     cmd.set("ray_opaque_background", 1)
     cmd.set("ray_shadows", 0)
@@ -505,22 +506,25 @@ def main():
                 robustness_df, rmsf_df, plddt_df,
                 args.output_dir, args.width, args.height)
 
-            pml_path = out / f"{protein_id}_pymol_script.pml"
+            pml_path = out / f"{protein_id}_pymol_render.py"
             with open(pml_path, "w") as f:
                 f.write(pml_script)
             print(f"  PyMOL script saved: {pml_path}")
-            print(f"  To render: pymol -cq {pml_path}")
+            print(f"  To render: python {pml_path}")
 
             if args.run_pymol:
                 print("Running PyMOL...")
                 result = subprocess.run(
-                    ["pymol", "-cq", str(pml_path)],
+                    ["python", str(pml_path)],
                     capture_output=True, text=True)
                 if result.returncode == 0:
                     print("  PyMOL rendering complete!")
+                    if result.stdout.strip():
+                        print(f"  stdout: {result.stdout[:500]}")
                 else:
                     print(f"  PyMOL failed (exit {result.returncode}):")
                     print(f"  stderr: {result.stderr[:500]}")
+                    print(f"  stdout: {result.stdout[:500]}")
 
     # --- Composite ---
     if not args.no_composite and not args.line_plot_only:
