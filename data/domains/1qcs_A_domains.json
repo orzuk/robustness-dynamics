@@ -1,0 +1,5 @@
+[
+    {"name": "Subdomain NA", "start": 1,   "end": 93},
+    {"name": "Linker",       "start": 94,  "end": 103, "color": "#FEE0D2"},
+    {"name": "Subdomain NB", "start": 104, "end": 211}
+]

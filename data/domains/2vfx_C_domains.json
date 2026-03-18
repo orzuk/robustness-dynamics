@@ -1,0 +1,6 @@
+[
+    {"name": "Core HORMA",    "start": 1,   "end": 104},
+    {"name": "Conf. switch",  "start": 105, "end": 155, "color": "#FEE0D2"},
+    {"name": "Safety belt",   "start": 156, "end": 190, "color": "#E5F5E0"},
+    {"name": "C-term tail",   "start": 191, "end": 206}
+]
