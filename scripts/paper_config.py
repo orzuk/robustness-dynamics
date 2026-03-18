@@ -278,7 +278,9 @@ FIG4_PANELS = [
 ]
 
 # Figure 5: Case study proteins (line plot + structure panels)
-CASE_STUDY_PROTEINS = ["1ez3_B", "1qcs_A", "2vfx_C"]
+CASE_STUDY_PROTEINS_MAIN = ["5ygh_A"]          # main paper Fig 5
+CASE_STUDY_PROTEINS_SUPP = ["5ezu_A", "4rp5_A"]  # supplementary
+CASE_STUDY_PROTEINS = CASE_STUDY_PROTEINS_MAIN + CASE_STUDY_PROTEINS_SUPP
 CASE_STUDY_SCORER = "thermompnn"
 
 
