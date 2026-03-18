@@ -12,11 +12,11 @@ dist/
 build/
 
 # Data outputs (large, generated on cluster)
-data/
+data/*
+!data/domains/
 results/
 figures/
 tables/
-*.json
 
 # Environment
 .env

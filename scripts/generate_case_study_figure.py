@@ -175,6 +175,23 @@ import pymol
 pymol.finish_launching(["pymol", "-cq"])
 from pymol import cmd
 
+def render_panel(obj_name, vals_dict, color_ramp, vmin, vmax, view, out_path, width, height):
+    \"\"\"Render one structure panel: regular cartoon colored by B-factor spectrum.\"\"\"
+    cmd.alter(obj_name, "b=0")
+    for pos, val in sorted(vals_dict.items()):
+        if val == val:  # skip NaN
+            cmd.alter(f"{{obj_name}} and resi {{pos}}", f"b={{val:.4f}}")
+    cmd.rebuild(obj_name)
+    cmd.hide("everything", obj_name)
+    cmd.show("cartoon", obj_name)
+    # Use regular cartoon (not putty) — single clean color per residue
+    cmd.set("cartoon_discrete_colors", 1, obj_name)
+    cmd.spectrum("b", color_ramp, obj_name, minimum=vmin, maximum=vmax)
+    cmd.set_view(view)
+    cmd.ray(width, height)
+    cmd.png(out_path, width=width, height=height)
+    cmd.disable(obj_name)
+
 def run():
     # Settings for publication quality
     cmd.set("ray_opaque_background", 1)
@@ -205,68 +222,27 @@ def run():
 
     # ========== Panel A: Robustness index ==========
     cmd.create("rob", "prot")
-    cmd.alter("rob", "b=0")
 """
     for pos, val in sorted(rob_vals.items()):
         if np.isfinite(val):
-            pml += f'    cmd.alter("rob and resi {pos}", "b={val:.4f}")\n'
-
+            pass  # handled inside render_panel now
+    # Build vals dict as a Python literal in the generated script
     pml += f"""
-    cmd.rebuild("rob")
-    cmd.show("cartoon", "rob")
-    cmd.cartoon("putty", "rob")
-    cmd.set("cartoon_putty_scale_min", 0.4, "rob")
-    cmd.set("cartoon_putty_scale_max", 2.5, "rob")
-    cmd.set("cartoon_putty_scale_power", 1.0, "rob")
-    # High std_ddg (sensitive) = blue, low (robust) = red
-    cmd.spectrum("b", "red_white_blue", "rob", minimum={rob_min:.3f}, maximum={rob_max:.3f})
-    cmd.set_view(stored_view)
-    cmd.ray({width}, {height})
-    cmd.png("{out / f'{protein_id}_panel_A_robustness.png'}", width={width}, height={height})
-    cmd.disable("rob")
+    rob_vals = {dict((k, round(v, 4)) for k, v in rob_vals.items() if np.isfinite(v))}
+    render_panel("rob", rob_vals, "red_white_blue", {rob_min:.3f}, {rob_max:.3f},
+                 stored_view, "{out / f'{protein_id}_panel_A_robustness.png'}", {width}, {height})
 
     # ========== Panel B: RMSF ==========
     cmd.create("rmsf_obj", "prot")
-    cmd.alter("rmsf_obj", "b=0")
-"""
-    for pos, val in sorted(rmsf_vals.items()):
-        if np.isfinite(val):
-            pml += f'    cmd.alter("rmsf_obj and resi {pos}", "b={val:.4f}")\n'
-
-    pml += f"""
-    cmd.rebuild("rmsf_obj")
-    cmd.show("cartoon", "rmsf_obj")
-    cmd.cartoon("putty", "rmsf_obj")
-    cmd.set("cartoon_putty_scale_min", 0.4, "rmsf_obj")
-    cmd.set("cartoon_putty_scale_max", 2.5, "rmsf_obj")
-    cmd.set("cartoon_putty_scale_power", 1.0, "rmsf_obj")
-    # High RMSF (flexible) = red, low (rigid) = blue
-    cmd.spectrum("b", "blue_white_red", "rmsf_obj", minimum={rmsf_min:.3f}, maximum={rmsf_max:.3f})
-    cmd.set_view(stored_view)
-    cmd.ray({width}, {height})
-    cmd.png("{out / f'{protein_id}_panel_B_rmsf.png'}", width={width}, height={height})
-    cmd.disable("rmsf_obj")
+    rmsf_vals = {dict((k, round(v, 4)) for k, v in rmsf_vals.items() if np.isfinite(v))}
+    render_panel("rmsf_obj", rmsf_vals, "blue_white_red", {rmsf_min:.3f}, {rmsf_max:.3f},
+                 stored_view, "{out / f'{protein_id}_panel_B_rmsf.png'}", {width}, {height})
 
     # ========== Panel C: pLDDT ==========
     cmd.create("plddt_obj", "prot")
-    cmd.alter("plddt_obj", "b=0")
-"""
-    for pos, val in sorted(plddt_vals.items()):
-        if np.isfinite(val):
-            pml += f'    cmd.alter("plddt_obj and resi {pos}", "b={val:.4f}")\n'
-
-    pml += f"""
-    cmd.rebuild("plddt_obj")
-    cmd.show("cartoon", "plddt_obj")
-    cmd.cartoon("putty", "plddt_obj")
-    cmd.set("cartoon_putty_scale_min", 0.4, "plddt_obj")
-    cmd.set("cartoon_putty_scale_max", 2.5, "plddt_obj")
-    cmd.set("cartoon_putty_scale_power", 1.0, "plddt_obj")
-    # High pLDDT (confident/rigid) = blue, low (flexible) = red
-    cmd.spectrum("b", "red_white_blue", "plddt_obj", minimum={plddt_min:.3f}, maximum={plddt_max:.3f})
-    cmd.set_view(stored_view)
-    cmd.ray({width}, {height})
-    cmd.png("{out / f'{protein_id}_panel_C_plddt.png'}", width={width}, height={height})
+    plddt_vals = {dict((k, round(v, 4)) for k, v in plddt_vals.items() if np.isfinite(v))}
+    render_panel("plddt_obj", plddt_vals, "red_white_blue", {plddt_min:.3f}, {plddt_max:.3f},
+                 stored_view, "{out / f'{protein_id}_panel_C_plddt.png'}", {width}, {height})
 
     cmd.quit()
 
@@ -279,11 +255,52 @@ run()
 # LINE PLOT (Panel D)
 # ============================================================================
 
+def load_domains(domains_path: Optional[str]) -> list:
+    """Load domain annotations from a JSON file.
+
+    Expected format: list of dicts with keys "name", "start", "end",
+    and optionally "color" (default cycles through a palette).
+
+    Example JSON:
+      [
+        {"name": "Habc domain", "start": 1, "end": 37},
+        {"name": "Linker",      "start": 38, "end": 50, "color": "#FDDBC7"},
+        {"name": "SNARE (H3)",  "start": 51, "end": 127}
+      ]
+    """
+    if domains_path is None:
+        return []
+    with open(domains_path) as f:
+        domains = json.load(f)
+    return domains
+
+
+# Default pastel palette for domain shading
+_DOMAIN_COLORS = [
+    "#DEEBF7",  # light blue
+    "#FEE0D2",  # light salmon
+    "#E5F5E0",  # light green
+    "#F2F0F7",  # light lavender
+    "#FFF7BC",  # light yellow
+    "#FDDAEC",  # light pink
+]
+
+
 def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
                        rmsf_df: pd.DataFrame, plddt_df: pd.DataFrame,
                        bfactor_df: Optional[pd.DataFrame],
-                       output_dir: str, rho_rmsf: float = None):
-    """Generate per-residue line plot of z-scored metrics."""
+                       output_dir: str, rho_rmsf: float = None,
+                       domains: Optional[list] = None,
+                       smooth_window: int = 0):
+    """Generate per-residue line plot of z-scored metrics.
+
+    Parameters
+    ----------
+    smooth_window : int
+        If > 0, overlay a rolling-average smoothed version of the
+        robustness trace (useful to see the dynamics-correlated component
+        without the ~3.6-residue helix-face oscillation).
+    """
 
     positions = robustness_df["position"].values
     std_ddg = robustness_df["std_ddg"].values
@@ -296,9 +313,38 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
 
     fig, ax = plt.subplots(figsize=(10, 3.5))
 
+    # Draw domain annotations as shaded regions (behind data)
+    if domains:
+        # Pre-compute y range from data for label placement
+        all_vals = [-z_rob]
+        if z_rmsf is not None:
+            all_vals.append(z_rmsf)
+        if z_plddt is not None:
+            all_vals.append(-z_plddt)
+        if z_bfac is not None:
+            all_vals.append(z_bfac)
+        ymax = max(np.nanmax(v) for v in all_vals) + 0.5
+
+        for i, dom in enumerate(domains):
+            color = dom.get("color", _DOMAIN_COLORS[i % len(_DOMAIN_COLORS)])
+            ax.axvspan(dom["start"], dom["end"], alpha=0.3, color=color,
+                       zorder=0)
+            mid = (dom["start"] + dom["end"]) / 2
+            ax.text(mid, ymax - 0.15, dom["name"], ha="center", va="top",
+                    fontsize=7.5, fontstyle="italic", color="#333333",
+                    zorder=1)
+
     # Plot -std_ddg so that "up" = flexible/robust (matches RMSF direction)
-    ax.plot(positions, -z_rob, color="#2166AC", linewidth=1.5, alpha=0.85,
-            label=r"$-\mathrm{std}(\Delta\Delta G)$ (robustness)")
+    ax.plot(positions, -z_rob, color="#2166AC", linewidth=1.2, alpha=0.7,
+            label=r"$-\mathrm{std}(\Delta\Delta G)$")
+
+    # Optional smoothed robustness trace
+    if smooth_window > 0:
+        smoothed = pd.Series(-z_rob).rolling(
+            window=smooth_window, center=True, min_periods=1).mean().values
+        ax.plot(positions, smoothed, color="#2166AC", linewidth=2.5, alpha=0.9,
+                label=f"smoothed (w={smooth_window})")
+
     if z_rmsf is not None:
         ax.plot(positions, z_rmsf, color="#D6604D", linewidth=1.5, alpha=0.85,
                 label="RMSF")
@@ -313,78 +359,145 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
     ax.set_xlabel("Residue position", fontsize=11)
     ax.set_ylabel("Z-scored value", fontsize=11)
 
+    # Title: just protein name (no rho — rho goes on structure panel subtitles)
     title = protein_id.upper().replace("_", " chain ")
-    if rho_rmsf is not None:
-        title += f"  ($\\rho$ = {rho_rmsf:.3f})"
     ax.set_title(title, fontsize=12)
 
-    ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
+    ax.legend(loc="upper right", fontsize=9, frameon=False)
     ax.set_xlim(positions[0], positions[-1])
     ax.tick_params(labelsize=9)
 
+    # Panel label
+    ax.text(0.01, 0.97, "(a)", transform=ax.transAxes, fontsize=13,
+            fontweight="bold", va="top", ha="left")
+
     plt.tight_layout()
     out = Path(output_dir)
-    fig.savefig(out / f"{protein_id}_panel_D_lineplot.png", dpi=300, bbox_inches="tight")
-    fig.savefig(out / f"{protein_id}_panel_D_lineplot.pdf", bbox_inches="tight")
+    fig.savefig(out / f"{protein_id}_panel_A_lineplot.png", dpi=300, bbox_inches="tight")
+    fig.savefig(out / f"{protein_id}_panel_A_lineplot.pdf", bbox_inches="tight")
     plt.close(fig)
-    print(f"  Line plot saved: {out / f'{protein_id}_panel_D_lineplot.png'}")
+    print(f"  Line plot saved: {out / f'{protein_id}_panel_A_lineplot.png'}")
 
 
 # ============================================================================
 # COMPOSITE FIGURE
 # ============================================================================
 
-def composite_figure(protein_id: str, output_dir: str):
-    """Combine panels A-D into a single figure (if all PNGs exist)."""
-    out = Path(output_dir)
-    panel_a = out / f"{protein_id}_panel_A_robustness.png"
-    panel_b = out / f"{protein_id}_panel_B_rmsf.png"
-    panel_c = out / f"{protein_id}_panel_C_plddt.png"
-    panel_d = out / f"{protein_id}_panel_D_lineplot.png"
+def composite_figure(protein_id: str, output_dir: str,
+                     robustness_df: pd.DataFrame = None,
+                     rmsf_df: pd.DataFrame = None,
+                     plddt_df: pd.DataFrame = None,
+                     rho_rmsf: float = None,
+                     rho_plddt: float = None):
+    """Combine panels into a single matplotlib figure.
 
-    if not all(p.exists() for p in [panel_a, panel_b, panel_d]):
+    Layout:  (a) line plot on top (full width)
+             (b) std(DDG)   (c) RMSF   (d) pLDDT   on bottom row
+
+    Structure panel subtitles include rho where appropriate:
+      (b) std(DDG)  (rho = ...)   — correlation with RMSF target
+      (c) RMSF                    — this IS the target, no rho
+      (d) pLDDT    (rho = ...)    — correlation with RMSF target
+    """
+    out = Path(output_dir)
+    panel_lineplot = out / f"{protein_id}_panel_A_lineplot.png"
+    panel_rob = out / f"{protein_id}_panel_A_robustness.png"  # old naming from PyMOL
+    panel_rmsf = out / f"{protein_id}_panel_B_rmsf.png"
+    panel_plddt = out / f"{protein_id}_panel_C_plddt.png"
+
+    if not all(p.exists() for p in [panel_lineplot, panel_rob, panel_rmsf]):
         print("  Skipping composite: not all panels available yet.")
-        print(f"  Missing: {[str(p) for p in [panel_a, panel_b, panel_c, panel_d] if not p.exists()]}")
+        missing = [str(p) for p in [panel_lineplot, panel_rob, panel_rmsf, panel_plddt]
+                   if not p.exists()]
+        print(f"  Missing: {missing}")
         return
 
-    from PIL import Image
+    from matplotlib.colors import LinearSegmentedColormap
+    import matplotlib.image as mpimg
 
-    img_a = Image.open(panel_a)
-    img_b = Image.open(panel_b)
-    img_c = Image.open(panel_c) if panel_c.exists() else None
-    img_d = Image.open(panel_d)
+    img_lineplot = mpimg.imread(str(panel_lineplot))
+    img_rob = mpimg.imread(str(panel_rob))
+    img_rmsf = mpimg.imread(str(panel_rmsf))
+    img_plddt = mpimg.imread(str(panel_plddt)) if panel_plddt.exists() else None
 
-    # Layout: top row = 3 structure panels, bottom row = line plot
-    struct_panels = [img_a, img_b]
-    if img_c is not None:
-        struct_panels.append(img_c)
+    n_struct = 3 if img_plddt is not None else 2
 
-    # Resize structure panels to same height
-    min_h = min(im.height for im in struct_panels)
-    resized = []
-    for im in struct_panels:
-        ratio = min_h / im.height
-        resized.append(im.resize((int(im.width * ratio), min_h), Image.LANCZOS))
+    # Build subtitles with rho values
+    rob_title = r"std($\Delta\Delta G$)"
+    if rho_rmsf is not None:
+        rob_title += f"  ($\\rho$ = {rho_rmsf:.3f})"
+    rmsf_title = "RMSF"  # target — no rho
+    plddt_title = "pLDDT"
+    if rho_plddt is not None:
+        plddt_title += f"  ($\\rho$ = {rho_plddt:.3f})"
 
-    top_width = sum(im.width for im in resized)
-    top_height = min_h
+    # Robustness: red_white_blue (high=blue=rigid, low=red=flexible)
+    # RMSF: blue_white_red (high=red=flexible, low=blue=rigid)
+    # pLDDT: red_white_blue (high=blue=rigid, low=red=flexible)
+    panel_info = [
+        {"img": img_rob, "label": "(b)", "title": rob_title,
+         "cmap": LinearSegmentedColormap.from_list("rwb", ["red", "white", "blue"]),
+         "vmin_label": "flexible", "vmax_label": "rigid"},
+        {"img": img_rmsf, "label": "(c)", "title": rmsf_title,
+         "cmap": LinearSegmentedColormap.from_list("bwr", ["blue", "white", "red"]),
+         "vmin_label": "rigid", "vmax_label": "flexible"},
+    ]
+    if img_plddt is not None:
+        panel_info.append(
+            {"img": img_plddt, "label": "(d)", "title": plddt_title,
+             "cmap": LinearSegmentedColormap.from_list("rwb2", ["red", "white", "blue"]),
+             "vmin_label": "flexible", "vmax_label": "rigid"})
 
-    # Scale line plot to match top row width
-    ratio = top_width / img_d.width
-    img_d_resized = img_d.resize((top_width, int(img_d.height * ratio)), Image.LANCZOS)
+    # Compute actual data ranges for colorbars
+    rob_vals = robustness_df["std_ddg"].values if robustness_df is not None else None
+    rmsf_vals = rmsf_df["rmsf"].values if rmsf_df is not None else None
+    plddt_vals = plddt_df["plddt"].values if plddt_df is not None else None
 
-    # Add labels
-    total_h = top_height + img_d_resized.height + 20
-    composite = Image.new("RGB", (top_width, total_h), "white")
+    data_ranges = []
+    for vals in [rob_vals, rmsf_vals, plddt_vals]:
+        if vals is not None:
+            data_ranges.append((np.nanpercentile(vals, 2), np.nanpercentile(vals, 98)))
+        else:
+            data_ranges.append((0, 1))
 
-    x = 0
-    for im in resized:
-        composite.paste(im, (x, 0))
-        x += im.width
+    # Layout: top = line plot (a), bottom = 3 structure panels (b,c,d)
+    fig = plt.figure(figsize=(14, 8))
+    gs = GridSpec(2, n_struct, figure=fig, height_ratios=[0.8, 1.2],
+                  hspace=0.08, wspace=0.02)
 
-    composite.paste(img_d_resized, (0, top_height + 20))
+    # --- Top row: line plot spanning all columns ---
+    ax_a = fig.add_subplot(gs[0, :])
+    ax_a.imshow(img_lineplot)
+    ax_a.axis("off")
 
-    composite.save(out / f"{protein_id}_fig5_composite.png", dpi=(300, 300))
+    # --- Bottom row: structure panels ---
+    for i, info in enumerate(panel_info):
+        ax = fig.add_subplot(gs[1, i])
+        ax.imshow(info["img"])
+        ax.axis("off")
+        # Panel label top-left
+        ax.text(0.02, 0.98, info["label"], transform=ax.transAxes,
+                fontsize=14, fontweight="bold", va="top", ha="left")
+        # Title above panel
+        ax.set_title(info["title"], fontsize=11, fontweight="bold", pad=4)
+
+        # Horizontal colorbar below the structure image
+        cbar_ax = ax.inset_axes([0.15, 0.02, 0.7, 0.025])
+        vmin, vmax = data_ranges[i]
+        norm = plt.Normalize(vmin=vmin, vmax=vmax)
+        sm = plt.cm.ScalarMappable(cmap=info["cmap"], norm=norm)
+        cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
+        cbar.ax.tick_params(labelsize=7)
+        cbar.ax.text(-0.02, 0.5, info["vmin_label"], transform=cbar.ax.transAxes,
+                     fontsize=6.5, va="center", ha="right", fontstyle="italic")
+        cbar.ax.text(1.02, 0.5, info["vmax_label"], transform=cbar.ax.transAxes,
+                     fontsize=6.5, va="center", ha="left", fontstyle="italic")
+
+    plt.savefig(out / f"{protein_id}_fig5_composite.png", dpi=300,
+                bbox_inches="tight", facecolor="white")
+    plt.savefig(out / f"{protein_id}_fig5_composite.pdf",
+                bbox_inches="tight", facecolor="white")
+    plt.close(fig)
     print(f"  Composite saved: {out / f'{protein_id}_fig5_composite.png'}")
 
 
@@ -392,46 +505,21 @@ def composite_figure(protein_id: str, output_dir: str):
 # MAIN
 # ============================================================================
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Generate case study figure for robustness-dynamics paper")
-    parser.add_argument("--protein_id", required=True,
-                        help="ATLAS protein ID (e.g., 1ez3_B)")
-    parser.add_argument("--atlas_dir", required=True,
-                        help="Path to ATLAS data directory")
-    parser.add_argument("--robustness_dir", required=True,
-                        help="Path to robustness output directory")
-    parser.add_argument("--scorer", default="thermompnn",
-                        help="DDG scorer (default: thermompnn)")
-    parser.add_argument("--output_dir", default="figures/case_study",
-                        help="Output directory for figure panels")
-    parser.add_argument("--line-plot-only", action="store_true",
-                        help="Skip PyMOL rendering, generate line plot only")
-    parser.add_argument("--run-pymol", action="store_true",
-                        help="Also execute the PyMOL script (requires pymol in PATH)")
-    parser.add_argument("--no-composite", action="store_true",
-                        help="Skip composite figure generation")
-    parser.add_argument("--width", type=int, default=2400,
-                        help="PyMOL render width in pixels")
-    parser.add_argument("--height", type=int, default=1800,
-                        help="PyMOL render height in pixels")
-    args = parser.parse_args()
-
+def process_protein(protein_id: str, args):
+    """Process a single protein: load data, generate line plot, PyMOL script,
+    and composite figure."""
     out = Path(args.output_dir)
-    out.mkdir(parents=True, exist_ok=True)
-
-    protein_id = args.protein_id
     chain = protein_id.split("_")[-1] if "_" in protein_id else "A"
     protein_dir = Path(args.atlas_dir) / "proteins" / protein_id
 
-    print(f"=== Case study figure for {protein_id} ===")
+    print(f"\n=== Case study figure for {protein_id} ===")
 
     # --- Load data ---
     print("Loading data...")
     robustness_df = load_robustness(Path(args.robustness_dir), args.scorer, protein_id)
     if robustness_df is None:
-        print(f"ERROR: No robustness data found for {protein_id}")
-        sys.exit(1)
+        print(f"ERROR: No robustness data found for {protein_id}, skipping.")
+        return
     print(f"  Robustness: {len(robustness_df)} residues")
 
     rmsf_df = load_rmsf(protein_dir)
@@ -470,7 +558,7 @@ def main():
     if bfactor_df is not None:
         bfactor_df = bfactor_df.iloc[:n].copy()
 
-    # --- Compute correlation ---
+    # --- Compute correlations ---
     rho_rmsf = None
     if rmsf_df is not None:
         rho, pval = stats.spearmanr(robustness_df["std_ddg"].values,
@@ -478,6 +566,14 @@ def main():
                                      nan_policy="omit")
         rho_rmsf = rho
         print(f"  Spearman rho (std_ddg vs RMSF): {rho:.3f} (p={pval:.2e})")
+
+    rho_plddt = None
+    if plddt_df is not None and rmsf_df is not None:
+        rho, pval = stats.spearmanr(plddt_df["plddt"].values,
+                                     rmsf_df["rmsf"].values,
+                                     nan_policy="omit")
+        rho_plddt = rho
+        print(f"  Spearman rho (pLDDT vs RMSF): {rho:.3f} (p={pval:.2e})")
 
     # --- Save extracted data as TSV (for reference) ---
     merged = robustness_df[["position", "wt_aa", "std_ddg", "mean_abs_ddg"]].copy()
@@ -490,17 +586,33 @@ def main():
     merged.to_csv(out / f"{protein_id}_per_residue_data.tsv", sep="\t", index=False)
     print(f"  Per-residue data saved: {out / f'{protein_id}_per_residue_data.tsv'}")
 
-    # --- Generate line plot (Panel D) ---
-    print("Generating line plot (Panel D)...")
-    generate_line_plot(protein_id, robustness_df, rmsf_df, plddt_df,
-                       bfactor_df, args.output_dir, rho_rmsf=rho_rmsf)
+    # --- Load domain annotations ---
+    # Try per-protein domains file first, then fall back to --domains arg
+    domains_path = args.domains
+    if domains_path is None:
+        # Auto-discover: look for data/domains/<protein_id>_domains.json
+        script_dir = Path(__file__).resolve().parent.parent
+        auto_path = script_dir / "data" / "domains" / f"{protein_id}_domains.json"
+        if auto_path.exists():
+            domains_path = str(auto_path)
+            print(f"  Auto-discovered domains: {auto_path}")
+    domains = load_domains(domains_path)
+    if domains:
+        print(f"  Domains: {len(domains)} regions loaded")
 
-    # --- Generate PyMOL script (Panels A-C) ---
+    # --- Generate line plot (Panel A) ---
+    print("Generating line plot (Panel A)...")
+    generate_line_plot(protein_id, robustness_df, rmsf_df, plddt_df,
+                       bfactor_df, args.output_dir, rho_rmsf=rho_rmsf,
+                       domains=domains,
+                       smooth_window=args.smooth_window)
+
+    # --- Generate PyMOL script (Panels B-D) ---
     if not args.line_plot_only:
         if pdb_path is None:
             print("ERROR: Cannot generate PyMOL panels without PDB file")
         else:
-            print("Generating PyMOL script (Panels A-C)...")
+            print("Generating PyMOL script (Panels B-D)...")
             pml_script = generate_pymol_script(
                 str(pdb_path), protein_id, chain,
                 robustness_df, rmsf_df, plddt_df,
@@ -530,13 +642,60 @@ def main():
     if not args.no_composite and not args.line_plot_only:
         print("Generating composite figure...")
         try:
-            composite_figure(protein_id, args.output_dir)
+            composite_figure(protein_id, args.output_dir,
+                            robustness_df=robustness_df,
+                            rmsf_df=rmsf_df,
+                            plddt_df=plddt_df,
+                            rho_rmsf=rho_rmsf,
+                            rho_plddt=rho_plddt)
         except ImportError:
             print("  Pillow not installed, skipping composite (pip install Pillow)")
         except Exception as e:
             print(f"  Composite failed: {e}")
 
-    print("Done!")
+    print(f"Done with {protein_id}!")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate case study figure for robustness-dynamics paper")
+    parser.add_argument("--protein_id", required=True, nargs="+",
+                        help="ATLAS protein ID(s) (e.g., 1ez3_B 1qcs_A 2vfx_C)")
+    parser.add_argument("--atlas_dir", required=True,
+                        help="Path to ATLAS data directory")
+    parser.add_argument("--robustness_dir", required=True,
+                        help="Path to robustness output directory")
+    parser.add_argument("--scorer", default="thermompnn",
+                        help="DDG scorer (default: thermompnn)")
+    parser.add_argument("--output_dir", default="figures/case_study",
+                        help="Output directory for figure panels")
+    parser.add_argument("--line-plot-only", action="store_true",
+                        help="Skip PyMOL rendering, generate line plot only")
+    parser.add_argument("--run-pymol", action="store_true",
+                        help="Also execute the PyMOL script (requires pymol in PATH)")
+    parser.add_argument("--domains", default=None,
+                        help="Path to JSON file with domain annotations "
+                             "(list of {name, start, end, [color]}). "
+                             "If not provided, auto-discovers "
+                             "data/domains/<protein_id>_domains.json")
+    parser.add_argument("--no-composite", action="store_true",
+                        help="Skip composite figure generation")
+    parser.add_argument("--smooth-window", type=int, default=0,
+                        help="Rolling average window for robustness trace "
+                             "(0 = no smoothing)")
+    parser.add_argument("--width", type=int, default=2400,
+                        help="PyMOL render width in pixels")
+    parser.add_argument("--height", type=int, default=1800,
+                        help="PyMOL render height in pixels")
+    args = parser.parse_args()
+
+    out = Path(args.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    for protein_id in args.protein_id:
+        process_protein(protein_id, args)
+
+    print(f"\n=== All done ({len(args.protein_id)} proteins) ===")
 
 
 if __name__ == "__main__":
