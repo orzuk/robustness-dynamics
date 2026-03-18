@@ -386,8 +386,8 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
     ax.set_xlim(positions[0], positions[-1])
     ax.tick_params(labelsize=9)
 
-    # Panel label
-    ax.text(0.01, 0.97, "(a)", transform=ax.transAxes, fontsize=13,
+    # Panel label — top-left corner
+    ax.text(0.01, 0.97, "(a)", transform=ax.transAxes, fontsize=14,
             fontweight="bold", va="top", ha="left")
 
     plt.tight_layout()
@@ -396,6 +396,133 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
     fig.savefig(out / f"{protein_id}_panel_A_lineplot.pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"  Line plot saved: {out / f'{protein_id}_panel_A_lineplot.png'}")
+
+
+# ============================================================================
+# STANDALONE PANEL (single structure panel with label, title, colorbar)
+# ============================================================================
+
+def save_standalone_panel(img_path: str, output_path: str, label: str,
+                          title: str, cmap, vmin: float, vmax: float,
+                          vmin_label: str, vmax_label: str,
+                          figsize=(6, 5)):
+    """Wrap a rendered structure image into a standalone figure with
+    panel label (top-left), title, and colorbar."""
+    from matplotlib.colors import LinearSegmentedColormap
+    import matplotlib.image as mpimg
+
+    img = mpimg.imread(str(img_path))
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.imshow(img)
+    ax.axis("off")
+
+    # Panel label — top-left corner
+    ax.text(0.02, 0.98, label, transform=ax.transAxes,
+            fontsize=14, fontweight="bold", va="top", ha="left")
+
+    # Title above panel
+    ax.set_title(title, fontsize=10, fontweight="bold", pad=6)
+
+    # Horizontal colorbar below the structure image
+    cbar_ax = ax.inset_axes([0.15, 0.02, 0.7, 0.025])
+    norm = plt.Normalize(vmin=vmin, vmax=vmax)
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
+    cbar.ax.tick_params(labelsize=7)
+    cbar.ax.text(-0.02, 0.5, vmin_label, transform=cbar.ax.transAxes,
+                 fontsize=6.5, va="center", ha="right", fontstyle="italic")
+    cbar.ax.text(1.02, 0.5, vmax_label, transform=cbar.ax.transAxes,
+                 fontsize=6.5, va="center", ha="left", fontstyle="italic")
+
+    plt.tight_layout()
+    fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
+    # Also save PDF version
+    pdf_path = str(output_path).rsplit(".", 1)[0] + ".pdf"
+    fig.savefig(pdf_path, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"  Standalone panel saved: {output_path}")
+
+
+def generate_separate_panels(protein_id: str, output_dir: str,
+                              robustness_df: pd.DataFrame = None,
+                              rmsf_df: pd.DataFrame = None,
+                              plddt_df: pd.DataFrame = None,
+                              bfactor_df: pd.DataFrame = None,
+                              rho_rmsf: float = None,
+                              rho_plddt_rmsf: float = None,
+                              rho_rob_bfac: float = None,
+                              rho_plddt_bfac: float = None,
+                              clip_pct: float = 10.0,
+                              trim_termini: int = 0):
+    """Generate each structure panel as a standalone figure with label,
+    title, and colorbar. Panel (a) line plot is already standalone."""
+    from matplotlib.colors import LinearSegmentedColormap
+
+    out = Path(output_dir)
+    panel_rob = out / f"{protein_id}_panel_B_robustness.png"
+    panel_plddt = out / f"{protein_id}_panel_C_plddt.png"
+    panel_rmsf = out / f"{protein_id}_panel_D_rmsf.png"
+    panel_bfac = out / f"{protein_id}_panel_E_bfactor.png"
+
+    rwb = LinearSegmentedColormap.from_list("rwb", ["red", "white", "blue"])
+    bwr = LinearSegmentedColormap.from_list("bwr", ["blue", "white", "red"])
+
+    def robust_range(vals, pct):
+        v = vals[~np.isnan(vals)] if vals is not None else np.array([0, 1])
+        if trim_termini > 0 and len(v) > 2 * trim_termini:
+            v = v[trim_termini:-trim_termini]
+        return (np.percentile(v, pct), np.percentile(v, 100 - pct))
+
+    def rho_str(rho_rmsf_val, rho_bfac_val):
+        parts = []
+        if rho_rmsf_val is not None:
+            parts.append(f"$\\rho_{{RMSF}}$ = {rho_rmsf_val:.2f}")
+        if rho_bfac_val is not None:
+            parts.append(f"$\\rho_{{Bfac}}$ = {rho_bfac_val:.2f}")
+        return "\n" + ", ".join(parts) if parts else ""
+
+    rob_vals = robustness_df["std_ddg"].values if robustness_df is not None else None
+    rmsf_vals = rmsf_df["rmsf"].values if rmsf_df is not None else None
+    plddt_vals = plddt_df["plddt"].values if plddt_df is not None else None
+    bfac_vals = bfactor_df["bfactor"].values if bfactor_df is not None else None
+
+    panels = []
+    if panel_rob.exists():
+        r = robust_range(rob_vals, clip_pct)
+        panels.append((panel_rob, out / f"{protein_id}_fig_panel_b.png",
+                        "(b)", r"std($\Delta\Delta G$)" + rho_str(rho_rmsf, rho_rob_bfac),
+                        rwb, r[0], r[1], "flexible", "rigid"))
+    if panel_plddt.exists():
+        r = robust_range(plddt_vals, clip_pct)
+        panels.append((panel_plddt, out / f"{protein_id}_fig_panel_c.png",
+                        "(c)", "pLDDT" + rho_str(rho_plddt_rmsf, rho_plddt_bfac),
+                        rwb, r[0], r[1], "flexible", "rigid"))
+    if panel_rmsf.exists():
+        r = robust_range(rmsf_vals, clip_pct)
+        panels.append((panel_rmsf, out / f"{protein_id}_fig_panel_d.png",
+                        "(d)", "RMSF",
+                        bwr, r[0], r[1], "rigid", "flexible"))
+    if panel_bfac.exists():
+        r = robust_range(bfac_vals, clip_pct)
+        panels.append((panel_bfac, out / f"{protein_id}_fig_panel_e.png",
+                        "(e)", "B-factor",
+                        bwr, r[0], r[1], "rigid", "flexible"))
+
+    for img_path, out_path, label, title, cmap, vmin, vmax, vmin_l, vmax_l in panels:
+        save_standalone_panel(str(img_path), str(out_path), label, title,
+                              cmap, vmin, vmax, vmin_l, vmax_l)
+
+    # Also copy line plot as panel_a with consistent naming
+    panel_a_src = out / f"{protein_id}_panel_A_lineplot.png"
+    panel_a_dst = out / f"{protein_id}_fig_panel_a.png"
+    if panel_a_src.exists() and not panel_a_dst.exists():
+        import shutil
+        shutil.copy2(str(panel_a_src), str(panel_a_dst))
+        pdf_src = out / f"{protein_id}_panel_A_lineplot.pdf"
+        pdf_dst = out / f"{protein_id}_fig_panel_a.pdf"
+        if pdf_src.exists():
+            shutil.copy2(str(pdf_src), str(pdf_dst))
+        print(f"  Panel (a) copied: {panel_a_dst}")
 
 
 # ============================================================================
@@ -698,6 +825,24 @@ def process_protein(protein_id: str, args):
                     print(f"  stderr: {result.stderr[:500]}")
                     print(f"  stdout: {result.stdout[:500]}")
 
+    # --- Separate panels (standalone figures for each panel) ---
+    if args.separate_panels and not args.line_plot_only:
+        print("Generating separate standalone panels...")
+        try:
+            generate_separate_panels(protein_id, args.output_dir,
+                                     robustness_df=robustness_df,
+                                     rmsf_df=rmsf_df,
+                                     plddt_df=plddt_df,
+                                     bfactor_df=bfactor_df,
+                                     rho_rmsf=rho_rmsf,
+                                     rho_plddt_rmsf=rho_plddt_rmsf,
+                                     rho_rob_bfac=rho_rob_bfac,
+                                     rho_plddt_bfac=rho_plddt_bfac,
+                                     clip_pct=args.clip_pct,
+                                     trim_termini=args.trim_termini)
+        except Exception as e:
+            print(f"  Separate panels failed: {e}")
+
     # --- Composite ---
     if not args.no_composite and not args.line_plot_only:
         print("Generating composite figure...")
@@ -743,6 +888,9 @@ def main():
                              "(list of {name, start, end, [color]}). "
                              "If not provided, auto-discovers "
                              "data/domains/<protein_id>_domains.json")
+    parser.add_argument("--separate-panels", action="store_true",
+                        help="Generate each panel (a-e) as a standalone figure "
+                             "with label, title, and colorbar")
     parser.add_argument("--no-composite", action="store_true",
                         help="Skip composite figure generation")
     parser.add_argument("--smooth-window", type=int, default=0,

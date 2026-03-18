@@ -203,14 +203,21 @@ MULTI_DDG_RUNS = [r for r in CORRELATION_RUNS if r.scorer == "thermompnn"]
 # PAPER TABLE SPECIFICATIONS
 # ============================================================================
 
-# Column order for Table 1 (main results)
+# Column order for Table 1 (main results) — NMR moved to supplementary
 TABLE1_COLUMNS = [
     ("atlas", "rmsf"),
     ("bbflow", "rmsf"),
     ("atlas", "bfactor"),
     ("pdb_designs", "bfactor"),
+]
+
+# NMR (RCI-S²) panels — supplementary material
+NMR_COLUMNS = [
     ("rci_s2", "bfactor"),
 ]
+
+# All columns including NMR (for tables that still need it)
+TABLE1_COLUMNS_ALL = TABLE1_COLUMNS + NMR_COLUMNS
 
 # Table 1 predictor rows
 TABLE1_PREDICTORS = ["esm1v", "thermompnn", "plddt", "sasa"]
@@ -250,14 +257,17 @@ ALT_ROBUSTNESS_MEASURES = [
 # FIGURE SPECIFICATIONS
 # ============================================================================
 
-# Figure 1: 4-panel per-protein correlation distributions
-FIG1_PANELS = TABLE1_COLUMNS  # same 4 dataset-target combos
+# Figure 1: 4-panel per-protein correlation distributions (2x2, no NMR)
+FIG1_PANELS = TABLE1_COLUMNS
 
-# Figure 2: 4-panel 2D density scatter with marginals
+# Figure 2: 4-panel 2D density scatter with marginals (2x2, no NMR)
 FIG2_PANELS = TABLE1_COLUMNS
 
-# Figure 3: Multi-DDG model comparison (all dataset-target combos)
-FIG3_PANELS = TABLE1_COLUMNS  # same 4 dataset-target combos
+# Figure 3: Multi-DDG model comparison (2 rows: RMSF + B-factor, no NMR)
+FIG3_PANELS = TABLE1_COLUMNS
+
+# Supplementary NMR panels (same figure types, separate files)
+FIG_NMR_PANELS = NMR_COLUMNS
 
 # Figure 4: DDG coefficients (3 panels: ATLAS RMSF vs B-fac, ATLAS vs BBFlow, PDB designs)
 FIG4_PANELS = [
