@@ -228,20 +228,20 @@ def run():
     cmd.orient("prot")
     stored_view = cmd.get_view()
 
-    # ========== Panel B: Robustness index (std DDG) ==========
-    cmd.create("rob", "prot")
+    # ========== Panel B: pLDDT (prediction) ==========
+    cmd.create("plddt_obj", "prot")
 """
     # Build vals dicts as Python literals in the generated script
     pml += f"""
-    rob_vals = {dict((k, round(v, 4)) for k, v in rob_vals.items() if np.isfinite(v))}
-    render_panel("rob", rob_vals, "red_white_blue", {rob_min:.3f}, {rob_max:.3f},
-                 stored_view, "{out / f'{protein_id}_panel_B_robustness.png'}", {width}, {height})
-
-    # ========== Panel C: pLDDT ==========
-    cmd.create("plddt_obj", "prot")
     plddt_vals = {dict((k, round(v, 4)) for k, v in plddt_vals.items() if np.isfinite(v))}
     render_panel("plddt_obj", plddt_vals, "red_white_blue", {plddt_min:.3f}, {plddt_max:.3f},
-                 stored_view, "{out / f'{protein_id}_panel_C_plddt.png'}", {width}, {height})
+                 stored_view, "{out / f'{protein_id}_panel_B_plddt.png'}", {width}, {height})
+
+    # ========== Panel C: Robustness index (std DDG, prediction) ==========
+    cmd.create("rob", "prot")
+    rob_vals = {dict((k, round(v, 4)) for k, v in rob_vals.items() if np.isfinite(v))}
+    render_panel("rob", rob_vals, "red_white_blue", {rob_min:.3f}, {rob_max:.3f},
+                 stored_view, "{out / f'{protein_id}_panel_C_robustness.png'}", {width}, {height})
 
     # ========== Panel D: RMSF ==========
     cmd.create("rmsf_obj", "prot")
@@ -293,15 +293,23 @@ def load_domains(domains_path: Optional[str]) -> list:
     return domains
 
 
-# Default pastel palette for domain shading
+# Default pastel palette for domain shading (moderately saturated)
 _DOMAIN_COLORS = [
-    "#DEEBF7",  # light blue
-    "#FEE0D2",  # light salmon
-    "#E5F5E0",  # light green
-    "#F2F0F7",  # light lavender
-    "#FFF7BC",  # light yellow
-    "#FDDAEC",  # light pink
+    "#B3D4F0",  # medium blue
+    "#FCBBA1",  # medium salmon
+    "#B5DFB5",  # medium green
+    "#D4C8E8",  # medium lavender
+    "#FFE680",  # medium yellow
+    "#F9B9D4",  # medium pink
 ]
+
+# Metric colors (shared between line plot and structure panel titles)
+METRIC_COLORS = {
+    "std_ddg": "#2166AC",   # blue
+    "plddt":   "#D6604D",   # red/salmon
+    "rmsf":    "#4DAF4A",   # green
+    "bfactor": "#984EA3",   # purple
+}
 
 
 def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
@@ -333,23 +341,15 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
 
     # Draw domain annotations as shaded regions (behind data)
     if domains:
-        # Pre-compute y range from data for label placement
-        all_vals = [-z_rob]
-        if z_rmsf is not None:
-            all_vals.append(z_rmsf)
-        if z_plddt is not None:
-            all_vals.append(-z_plddt)
-        if z_bfac is not None:
-            all_vals.append(z_bfac)
-        ymax = max(np.nanmax(v) for v in all_vals) + 0.5
-
         for i, dom in enumerate(domains):
             color = dom.get("color", _DOMAIN_COLORS[i % len(_DOMAIN_COLORS)])
-            ax.axvspan(dom["start"], dom["end"], alpha=0.3, color=color,
+            ax.axvspan(dom["start"], dom["end"], alpha=0.7, color=color,
                        zorder=0)
             mid = (dom["start"] + dom["end"]) / 2
-            ax.text(mid, ymax - 0.15, dom["name"], ha="center", va="top",
-                    fontsize=7.5, fontstyle="italic", color="#333333",
+            # Place domain labels above the plot area (above the box)
+            ax.text(mid, 1.06, dom["name"], ha="center", va="bottom",
+                    fontsize=11, fontstyle="italic", color="#333333",
+                    transform=ax.get_xaxis_transform(), clip_on=False,
                     zorder=1)
 
     # Predictors: solid lines
@@ -382,7 +382,8 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
     title = protein_id.upper().replace("_", " chain ")
     ax.set_title(title, fontsize=12)
 
-    ax.legend(loc="upper right", fontsize=9, frameon=False)
+    ax.legend(loc="upper right", fontsize=9, frameon=True, framealpha=0.85,
+              edgecolor="none", bbox_to_anchor=(0.92, 0.82))
     ax.set_xlim(positions[0], positions[-1])
     ax.tick_params(labelsize=9)
 
@@ -405,9 +406,9 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
 def save_standalone_panel(img_path: str, output_path: str, label: str,
                           title: str, cmap, vmin: float, vmax: float,
                           vmin_label: str, vmax_label: str,
-                          figsize=(6, 5)):
+                          figsize=(6, 5), title_color: str = "black"):
     """Wrap a rendered structure image into a standalone figure with
-    panel label (top-left), title, and colorbar."""
+    panel label (top-left), title (colored to match line plot), and colorbar."""
     from matplotlib.colors import LinearSegmentedColormap
     import matplotlib.image as mpimg
 
@@ -420,8 +421,9 @@ def save_standalone_panel(img_path: str, output_path: str, label: str,
     ax.text(0.02, 0.98, label, transform=ax.transAxes,
             fontsize=14, fontweight="bold", va="top", ha="left")
 
-    # Title above panel
-    ax.set_title(title, fontsize=10, fontweight="bold", pad=6)
+    # Title above panel (colored to match line plot trace)
+    ax.set_title(title, fontsize=10, fontweight="bold", pad=6,
+                 color=title_color)
 
     # Horizontal colorbar below the structure image
     cbar_ax = ax.inset_axes([0.15, 0.02, 0.7, 0.025])
@@ -459,8 +461,8 @@ def generate_separate_panels(protein_id: str, output_dir: str,
     from matplotlib.colors import LinearSegmentedColormap
 
     out = Path(output_dir)
-    panel_rob = out / f"{protein_id}_panel_B_robustness.png"
-    panel_plddt = out / f"{protein_id}_panel_C_plddt.png"
+    panel_plddt = out / f"{protein_id}_panel_B_plddt.png"
+    panel_rob = out / f"{protein_id}_panel_C_robustness.png"
     panel_rmsf = out / f"{protein_id}_panel_D_rmsf.png"
     panel_bfac = out / f"{protein_id}_panel_E_bfactor.png"
 
@@ -486,31 +488,38 @@ def generate_separate_panels(protein_id: str, output_dir: str,
     plddt_vals = plddt_df["plddt"].values if plddt_df is not None else None
     bfac_vals = bfactor_df["bfactor"].values if bfactor_df is not None else None
 
+    # Row 1: predictions (b) pLDDT, (c) std(DDG)
+    # Row 2: responses   (d) RMSF,  (e) B-factor
     panels = []
-    if panel_rob.exists():
-        r = robust_range(rob_vals, clip_pct)
-        panels.append((panel_rob, out / f"{protein_id}_fig_panel_b.png",
-                        "(b)", r"std($\Delta\Delta G$)" + rho_str(rho_rmsf, rho_rob_bfac),
-                        rwb, r[0], r[1], "flexible", "rigid"))
     if panel_plddt.exists():
         r = robust_range(plddt_vals, clip_pct)
-        panels.append((panel_plddt, out / f"{protein_id}_fig_panel_c.png",
-                        "(c)", "pLDDT" + rho_str(rho_plddt_rmsf, rho_plddt_bfac),
-                        rwb, r[0], r[1], "flexible", "rigid"))
+        panels.append((panel_plddt, out / f"{protein_id}_fig_panel_b.png",
+                        "(b)", "pLDDT" + rho_str(rho_plddt_rmsf, rho_plddt_bfac),
+                        rwb, r[0], r[1], "flexible", "rigid",
+                        METRIC_COLORS["plddt"]))
+    if panel_rob.exists():
+        r = robust_range(rob_vals, clip_pct)
+        panels.append((panel_rob, out / f"{protein_id}_fig_panel_c.png",
+                        "(c)", r"std($\Delta\Delta G$)" + rho_str(rho_rmsf, rho_rob_bfac),
+                        rwb, r[0], r[1], "flexible", "rigid",
+                        METRIC_COLORS["std_ddg"]))
     if panel_rmsf.exists():
         r = robust_range(rmsf_vals, clip_pct)
         panels.append((panel_rmsf, out / f"{protein_id}_fig_panel_d.png",
                         "(d)", "RMSF",
-                        bwr, r[0], r[1], "rigid", "flexible"))
+                        bwr, r[0], r[1], "rigid", "flexible",
+                        METRIC_COLORS["rmsf"]))
     if panel_bfac.exists():
         r = robust_range(bfac_vals, clip_pct)
         panels.append((panel_bfac, out / f"{protein_id}_fig_panel_e.png",
                         "(e)", "B-factor",
-                        bwr, r[0], r[1], "rigid", "flexible"))
+                        bwr, r[0], r[1], "rigid", "flexible",
+                        METRIC_COLORS["bfactor"]))
 
-    for img_path, out_path, label, title, cmap, vmin, vmax, vmin_l, vmax_l in panels:
+    for img_path, out_path, label, title, cmap, vmin, vmax, vmin_l, vmax_l, title_color in panels:
         save_standalone_panel(str(img_path), str(out_path), label, title,
-                              cmap, vmin, vmax, vmin_l, vmax_l)
+                              cmap, vmin, vmax, vmin_l, vmax_l,
+                              title_color=title_color)
 
     # Also copy line plot as panel_a with consistent naming
     panel_a_src = out / f"{protein_id}_panel_A_lineplot.png"
@@ -543,20 +552,20 @@ def composite_figure(protein_id: str, output_dir: str,
     """Combine panels into a single matplotlib figure.
 
     Layout:  (a) line plot on top (full width)
-             (b) std(DDG)   (c) pLDDT      2x2 grid below
-             (d) RMSF       (e) B-factor
+             (b) pLDDT      (c) std(DDG)   2x2 grid below (predictions)
+             (d) RMSF       (e) B-factor                   (responses)
     """
     out = Path(output_dir)
     panel_lineplot = out / f"{protein_id}_panel_A_lineplot.png"
-    panel_rob = out / f"{protein_id}_panel_B_robustness.png"
-    panel_plddt = out / f"{protein_id}_panel_C_plddt.png"
+    panel_plddt = out / f"{protein_id}_panel_B_plddt.png"
+    panel_rob = out / f"{protein_id}_panel_C_robustness.png"
     panel_rmsf = out / f"{protein_id}_panel_D_rmsf.png"
     panel_bfac = out / f"{protein_id}_panel_E_bfactor.png"
 
     required = [panel_lineplot, panel_rob, panel_rmsf]
     if not all(p.exists() for p in required):
         print("  Skipping composite: not all panels available yet.")
-        all_panels = [panel_lineplot, panel_rob, panel_plddt, panel_rmsf, panel_bfac]
+        all_panels = [panel_lineplot, panel_plddt, panel_rob, panel_rmsf, panel_bfac]
         print(f"  Missing: {[str(p) for p in all_panels if not p.exists()]}")
         return
 
@@ -564,8 +573,8 @@ def composite_figure(protein_id: str, output_dir: str,
     import matplotlib.image as mpimg
 
     img_lineplot = mpimg.imread(str(panel_lineplot))
-    img_rob = mpimg.imread(str(panel_rob))
     img_plddt = mpimg.imread(str(panel_plddt)) if panel_plddt.exists() else None
+    img_rob = mpimg.imread(str(panel_rob))
     img_rmsf = mpimg.imread(str(panel_rmsf))
     img_bfac = mpimg.imread(str(panel_bfac)) if panel_bfac.exists() else None
 
@@ -598,34 +607,38 @@ def composite_figure(protein_id: str, output_dir: str,
     plddt_vals = plddt_df["plddt"].values if plddt_df is not None else None
     bfac_vals = bfactor_df["bfactor"].values if bfactor_df is not None else None
 
-    # 2x2 panel layout: top = predictors, bottom = targets
-    #   (b) std(DDG)   (c) pLDDT
-    #   (d) RMSF       (e) B-factor
+    # 2x2 panel layout: top = predictions, bottom = responses
+    #   (b) pLDDT      (c) std(DDG)
+    #   (d) RMSF        (e) B-factor
     rwb = LinearSegmentedColormap.from_list("rwb", ["red", "white", "blue"])
     bwr = LinearSegmentedColormap.from_list("bwr", ["blue", "white", "red"])
 
-    panels_2x2 = [
-        # row 0, col 0: robustness
-        {"img": img_rob, "label": "(b)", "title": rob_title,
-         "cmap": rwb, "vmin_label": "flexible", "vmax_label": "rigid",
-         "range": robust_range(rob_vals, clip_pct), "row": 0, "col": 0},
-    ]
+    panels_2x2 = []
     if has_plddt:
         panels_2x2.append(
-            # row 0, col 1: pLDDT
-            {"img": img_plddt, "label": "(c)", "title": plddt_title,
+            # row 0, col 0: pLDDT (prediction)
+            {"img": img_plddt, "label": "(b)", "title": plddt_title,
              "cmap": rwb, "vmin_label": "flexible", "vmax_label": "rigid",
-             "range": robust_range(plddt_vals, clip_pct), "row": 0, "col": 1})
+             "range": robust_range(plddt_vals, clip_pct), "row": 0, "col": 0,
+             "title_color": METRIC_COLORS["plddt"]})
     panels_2x2.append(
-        # row 1, col 0: RMSF
+        # row 0, col 1: robustness (prediction)
+        {"img": img_rob, "label": "(c)", "title": rob_title,
+         "cmap": rwb, "vmin_label": "flexible", "vmax_label": "rigid",
+         "range": robust_range(rob_vals, clip_pct), "row": 0, "col": 1,
+         "title_color": METRIC_COLORS["std_ddg"]})
+    panels_2x2.append(
+        # row 1, col 0: RMSF (response)
         {"img": img_rmsf, "label": "(d)", "title": rmsf_title,
          "cmap": bwr, "vmin_label": "rigid", "vmax_label": "flexible",
-         "range": robust_range(rmsf_vals, clip_pct), "row": 1, "col": 0})
+         "range": robust_range(rmsf_vals, clip_pct), "row": 1, "col": 0,
+         "title_color": METRIC_COLORS["rmsf"]})
     if has_bfac:
         panels_2x2.append(
             {"img": img_bfac, "label": "(e)", "title": bfac_title,
              "cmap": bwr, "vmin_label": "rigid", "vmax_label": "flexible",
-             "range": robust_range(bfac_vals, clip_pct), "row": 1, "col": 1})
+             "range": robust_range(bfac_vals, clip_pct), "row": 1, "col": 1,
+             "title_color": METRIC_COLORS["bfactor"]})
 
     # Figure layout: line plot on top, 2x2 structure grid below
     fig = plt.figure(figsize=(12, 11))
@@ -645,8 +658,9 @@ def composite_figure(protein_id: str, output_dir: str,
         # Panel label top-left
         ax.text(0.02, 0.98, info["label"], transform=ax.transAxes,
                 fontsize=14, fontweight="bold", va="top", ha="left")
-        # Title above panel (smaller font for multi-line with rho)
-        ax.set_title(info["title"], fontsize=9, fontweight="bold", pad=4)
+        # Title above panel (colored to match line plot trace)
+        ax.set_title(info["title"], fontsize=9, fontweight="bold", pad=4,
+                     color=info.get("title_color", "black"))
 
         # Horizontal colorbar below the structure image
         cbar_ax = ax.inset_axes([0.15, 0.02, 0.7, 0.025])
