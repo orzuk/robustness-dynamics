@@ -1,0 +1,6 @@
+[
+    {"name": "N-term region",  "start": 1,  "end": 12, "color": "#FEE0D2"},
+    {"name": "Bcl-2 core",     "start": 13, "end": 65},
+    {"name": "BB loop",        "start": 66, "end": 75, "color": "#E5F5E0"},
+    {"name": "C-term helix",   "start": 76, "end": 89}
+]

@@ -1,0 +1,8 @@
+[
+    {"name": "N-term tail",    "start": 1,  "end": 10, "color": "#FEE0D2"},
+    {"name": "Helix A",        "start": 11, "end": 35},
+    {"name": "A-B loop",       "start": 36, "end": 42, "color": "#FEE0D2"},
+    {"name": "Helix B",        "start": 43, "end": 67},
+    {"name": "B-C loop",       "start": 68, "end": 73, "color": "#FEE0D2"},
+    {"name": "Helix C",        "start": 74, "end": 98}
+]

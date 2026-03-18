@@ -1,0 +1,9 @@
+[
+    {"name": "N-term loop",  "start": 1,  "end": 14, "color": "#FEE0D2"},
+    {"name": "Helix \u03b11",     "start": 15, "end": 35},
+    {"name": "\u03b11-\u03b12 loop",   "start": 36, "end": 40, "color": "#FEE0D2"},
+    {"name": "Helix \u03b12",     "start": 41, "end": 53},
+    {"name": "\u03b12-\u03b13 loop",   "start": 54, "end": 56, "color": "#FEE0D2"},
+    {"name": "Helix \u03b13",     "start": 57, "end": 65},
+    {"name": "Helix \u03b14",     "start": 66, "end": 76}
+]
