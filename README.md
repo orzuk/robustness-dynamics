@@ -1,9 +1,8 @@
 # Mutational Robustness Predicts Protein Dynamics
 
-Code accompanying the paper:
+Code accompanying the draft paper:
 
-> **Mutational Robustness Predicts Protein Dynamics Across Natural and Designed Proteins**
-> Meira Barron & Or Zuk, 2026
+> **Mutational Robustness Predicts Protein Dynamics Across Natural and Designed Proteins** 2026
 
 ## Overview
 
