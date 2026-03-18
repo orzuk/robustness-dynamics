@@ -135,36 +135,44 @@ def zscore(x):
 
 def generate_pymol_script(pdb_path: str, protein_id: str, chain: str,
                           robustness_df: pd.DataFrame, rmsf_df: pd.DataFrame,
-                          plddt_df: pd.DataFrame, output_dir: str,
-                          width: int = 2400, height: int = 1800) -> str:
-    """Generate a PyMOL .pml script that renders 3 panels."""
+                          plddt_df: pd.DataFrame,
+                          bfactor_df: Optional[pd.DataFrame],
+                          output_dir: str,
+                          width: int = 2400, height: int = 1800,
+                          clip_pct: float = 10.0,
+                          trim_termini: int = 0) -> str:
+    """Generate a PyMOL .py script that renders 4 panels (rob, pLDDT, RMSF, B-factor).
+
+    Parameters
+    ----------
+    clip_pct : float
+        Percentile for robust color clipping (e.g. 10 means 10th-90th percentile).
+    trim_termini : int
+        Exclude first/last N residues from color range computation.
+    """
 
     out = Path(output_dir)
     chain_upper = chain.upper()
 
-    # Prepare value mappings (residue index -> value)
-    # Robustness: high std_ddg = sensitive/rigid -> blue; low = robust/flexible -> red
-    # RMSF: high = flexible -> red; low = rigid -> blue
-    # pLDDT: high = confident/rigid -> blue; low = flexible -> red
-
     rob_vals = robustness_df.set_index("position")["std_ddg"].to_dict()
     rmsf_vals = rmsf_df.set_index("position")["rmsf"].to_dict()
     plddt_vals = plddt_df.set_index("position")["plddt"].to_dict()
+    bfac_vals = bfactor_df.set_index("position")["bfactor"].to_dict() if bfactor_df is not None else {}
 
-    # Build the alter commands for each metric
-    def make_alter_cmds(vals_dict, obj_name):
-        cmds = []
-        for pos, val in sorted(vals_dict.items()):
-            if np.isfinite(val):
-                cmds.append(f'cmd.alter("{obj_name} and resi {pos}", "b={val:.4f}")')
-        return cmds
+    def robust_range(vals_dict):
+        """Compute color range using percentile clipping, optionally trimming termini."""
+        positions = sorted(vals_dict.keys())
+        if trim_termini > 0 and len(positions) > 2 * trim_termini:
+            interior = positions[trim_termini:-trim_termini]
+            v = [vals_dict[p] for p in interior if np.isfinite(vals_dict[p])]
+        else:
+            v = [x for x in vals_dict.values() if np.isfinite(x)]
+        return (np.percentile(v, clip_pct), np.percentile(v, 100 - clip_pct))
 
-    rob_min = np.nanpercentile(list(rob_vals.values()), 2)
-    rob_max = np.nanpercentile(list(rob_vals.values()), 98)
-    rmsf_min = np.nanpercentile(list(rmsf_vals.values()), 2)
-    rmsf_max = np.nanpercentile(list(rmsf_vals.values()), 98)
-    plddt_min = np.nanpercentile(list(plddt_vals.values()), 2)
-    plddt_max = np.nanpercentile(list(plddt_vals.values()), 98)
+    rob_min, rob_max = robust_range(rob_vals)
+    rmsf_min, rmsf_max = robust_range(rmsf_vals)
+    plddt_min, plddt_max = robust_range(plddt_vals)
+    bfac_min, bfac_max = robust_range(bfac_vals) if bfac_vals else (0, 1)
 
     pml = f"""#!/usr/bin/env python3
 # Auto-generated PyMOL render script for case study figure
@@ -220,23 +228,14 @@ def run():
     cmd.orient("prot")
     stored_view = cmd.get_view()
 
-    # ========== Panel A: Robustness index ==========
+    # ========== Panel B: Robustness index (std DDG) ==========
     cmd.create("rob", "prot")
 """
-    for pos, val in sorted(rob_vals.items()):
-        if np.isfinite(val):
-            pass  # handled inside render_panel now
-    # Build vals dict as a Python literal in the generated script
+    # Build vals dicts as Python literals in the generated script
     pml += f"""
     rob_vals = {dict((k, round(v, 4)) for k, v in rob_vals.items() if np.isfinite(v))}
     render_panel("rob", rob_vals, "red_white_blue", {rob_min:.3f}, {rob_max:.3f},
-                 stored_view, "{out / f'{protein_id}_panel_A_robustness.png'}", {width}, {height})
-
-    # ========== Panel B: RMSF ==========
-    cmd.create("rmsf_obj", "prot")
-    rmsf_vals = {dict((k, round(v, 4)) for k, v in rmsf_vals.items() if np.isfinite(v))}
-    render_panel("rmsf_obj", rmsf_vals, "blue_white_red", {rmsf_min:.3f}, {rmsf_max:.3f},
-                 stored_view, "{out / f'{protein_id}_panel_B_rmsf.png'}", {width}, {height})
+                 stored_view, "{out / f'{protein_id}_panel_B_robustness.png'}", {width}, {height})
 
     # ========== Panel C: pLDDT ==========
     cmd.create("plddt_obj", "prot")
@@ -244,6 +243,25 @@ def run():
     render_panel("plddt_obj", plddt_vals, "red_white_blue", {plddt_min:.3f}, {plddt_max:.3f},
                  stored_view, "{out / f'{protein_id}_panel_C_plddt.png'}", {width}, {height})
 
+    # ========== Panel D: RMSF ==========
+    cmd.create("rmsf_obj", "prot")
+    rmsf_vals = {dict((k, round(v, 4)) for k, v in rmsf_vals.items() if np.isfinite(v))}
+    render_panel("rmsf_obj", rmsf_vals, "blue_white_red", {rmsf_min:.3f}, {rmsf_max:.3f},
+                 stored_view, "{out / f'{protein_id}_panel_D_rmsf.png'}", {width}, {height})
+
+    # ========== Panel E: B-factor ==========
+"""
+    if bfac_vals:
+        pml += f"""    cmd.create("bfac_obj", "prot")
+    bfac_vals = {dict((k, round(v, 4)) for k, v in bfac_vals.items() if np.isfinite(v))}
+    render_panel("bfac_obj", bfac_vals, "blue_white_red", {bfac_min:.3f}, {bfac_max:.3f},
+                 stored_view, "{out / f'{protein_id}_panel_E_bfactor.png'}", {width}, {height})
+"""
+    else:
+        pml += f"""    print("No B-factor data — skipping panel E")
+"""
+
+    pml += f"""
     cmd.quit()
 
 run()
@@ -334,9 +352,12 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
                     fontsize=7.5, fontstyle="italic", color="#333333",
                     zorder=1)
 
-    # Plot -std_ddg so that "up" = flexible/robust (matches RMSF direction)
-    ax.plot(positions, -z_rob, color="#2166AC", linewidth=1.2, alpha=0.7,
+    # Predictors: solid lines
+    ax.plot(positions, -z_rob, color="#2166AC", linewidth=1.5, alpha=0.85,
             label=r"$-\mathrm{std}(\Delta\Delta G)$")
+    if z_plddt is not None:
+        ax.plot(positions, -z_plddt, color="#D6604D", linewidth=1.5, alpha=0.85,
+                label=r"$-$pLDDT")
 
     # Optional smoothed robustness trace
     if smooth_window > 0:
@@ -345,15 +366,13 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
         ax.plot(positions, smoothed, color="#2166AC", linewidth=2.5, alpha=0.9,
                 label=f"smoothed (w={smooth_window})")
 
+    # Targets: dashed lines (same width as predictors)
     if z_rmsf is not None:
-        ax.plot(positions, z_rmsf, color="#D6604D", linewidth=1.5, alpha=0.85,
-                label="RMSF")
-    if z_plddt is not None:
-        ax.plot(positions, -z_plddt, color="#4DAF4A", linewidth=1.2, alpha=0.7,
-                linestyle="--", label=r"$-$pLDDT")
+        ax.plot(positions, z_rmsf, color="#4DAF4A", linewidth=1.5, alpha=0.85,
+                linestyle="--", label="RMSF")
     if z_bfac is not None:
-        ax.plot(positions, z_bfac, color="#984EA3", linewidth=1.0, alpha=0.6,
-                linestyle=":", label="B-factor")
+        ax.plot(positions, z_bfac, color="#984EA3", linewidth=1.5, alpha=0.85,
+                linestyle="--", label="B-factor")
 
     ax.axhline(0, color="gray", linewidth=0.5, linestyle="-")
     ax.set_xlabel("Residue position", fontsize=11)
@@ -387,29 +406,31 @@ def composite_figure(protein_id: str, output_dir: str,
                      robustness_df: pd.DataFrame = None,
                      rmsf_df: pd.DataFrame = None,
                      plddt_df: pd.DataFrame = None,
+                     bfactor_df: pd.DataFrame = None,
                      rho_rmsf: float = None,
-                     rho_plddt: float = None):
+                     rho_plddt_rmsf: float = None,
+                     rho_rob_bfac: float = None,
+                     rho_plddt_bfac: float = None,
+                     clip_pct: float = 10.0,
+                     trim_termini: int = 0):
     """Combine panels into a single matplotlib figure.
 
     Layout:  (a) line plot on top (full width)
-             (b) std(DDG)   (c) RMSF   (d) pLDDT   on bottom row
-
-    Structure panel subtitles include rho where appropriate:
-      (b) std(DDG)  (rho = ...)   — correlation with RMSF target
-      (c) RMSF                    — this IS the target, no rho
-      (d) pLDDT    (rho = ...)    — correlation with RMSF target
+             (b) std(DDG)   (d) RMSF       2x2 grid below
+             (c) pLDDT      (e) B-factor
     """
     out = Path(output_dir)
     panel_lineplot = out / f"{protein_id}_panel_A_lineplot.png"
-    panel_rob = out / f"{protein_id}_panel_A_robustness.png"  # old naming from PyMOL
-    panel_rmsf = out / f"{protein_id}_panel_B_rmsf.png"
+    panel_rob = out / f"{protein_id}_panel_B_robustness.png"
     panel_plddt = out / f"{protein_id}_panel_C_plddt.png"
+    panel_rmsf = out / f"{protein_id}_panel_D_rmsf.png"
+    panel_bfac = out / f"{protein_id}_panel_E_bfactor.png"
 
-    if not all(p.exists() for p in [panel_lineplot, panel_rob, panel_rmsf]):
+    required = [panel_lineplot, panel_rob, panel_rmsf]
+    if not all(p.exists() for p in required):
         print("  Skipping composite: not all panels available yet.")
-        missing = [str(p) for p in [panel_lineplot, panel_rob, panel_rmsf, panel_plddt]
-                   if not p.exists()]
-        print(f"  Missing: {missing}")
+        all_panels = [panel_lineplot, panel_rob, panel_plddt, panel_rmsf, panel_bfac]
+        print(f"  Missing: {[str(p) for p in all_panels if not p.exists()]}")
         return
 
     from matplotlib.colors import LinearSegmentedColormap
@@ -417,73 +438,90 @@ def composite_figure(protein_id: str, output_dir: str,
 
     img_lineplot = mpimg.imread(str(panel_lineplot))
     img_rob = mpimg.imread(str(panel_rob))
-    img_rmsf = mpimg.imread(str(panel_rmsf))
     img_plddt = mpimg.imread(str(panel_plddt)) if panel_plddt.exists() else None
+    img_rmsf = mpimg.imread(str(panel_rmsf))
+    img_bfac = mpimg.imread(str(panel_bfac)) if panel_bfac.exists() else None
 
-    n_struct = 3 if img_plddt is not None else 2
+    has_bfac = img_bfac is not None
+    has_plddt = img_plddt is not None
 
-    # Build subtitles with rho values
-    rob_title = r"std($\Delta\Delta G$)"
-    if rho_rmsf is not None:
-        rob_title += f"  ($\\rho$ = {rho_rmsf:.3f})"
-    rmsf_title = "RMSF"  # target — no rho
-    plddt_title = "pLDDT"
-    if rho_plddt is not None:
-        plddt_title += f"  ($\\rho$ = {rho_plddt:.3f})"
+    # Build subtitles: each predictor shows rho with both targets
+    def rho_str(rho_rmsf_val, rho_bfac_val):
+        parts = []
+        if rho_rmsf_val is not None:
+            parts.append(f"$\\rho_{{RMSF}}$ = {rho_rmsf_val:.2f}")
+        if rho_bfac_val is not None:
+            parts.append(f"$\\rho_{{Bfac}}$ = {rho_bfac_val:.2f}")
+        return "\n" + ", ".join(parts) if parts else ""
 
-    # Robustness: red_white_blue (high=blue=rigid, low=red=flexible)
-    # RMSF: blue_white_red (high=red=flexible, low=blue=rigid)
-    # pLDDT: red_white_blue (high=blue=rigid, low=red=flexible)
-    panel_info = [
-        {"img": img_rob, "label": "(b)", "title": rob_title,
-         "cmap": LinearSegmentedColormap.from_list("rwb", ["red", "white", "blue"]),
-         "vmin_label": "flexible", "vmax_label": "rigid"},
-        {"img": img_rmsf, "label": "(c)", "title": rmsf_title,
-         "cmap": LinearSegmentedColormap.from_list("bwr", ["blue", "white", "red"]),
-         "vmin_label": "rigid", "vmax_label": "flexible"},
-    ]
-    if img_plddt is not None:
-        panel_info.append(
-            {"img": img_plddt, "label": "(d)", "title": plddt_title,
-             "cmap": LinearSegmentedColormap.from_list("rwb2", ["red", "white", "blue"]),
-             "vmin_label": "flexible", "vmax_label": "rigid"})
+    rob_title = r"std($\Delta\Delta G$)" + rho_str(rho_rmsf, rho_rob_bfac)
+    plddt_title = "pLDDT" + rho_str(rho_plddt_rmsf, rho_plddt_bfac)
+    rmsf_title = "RMSF"
+    bfac_title = "B-factor"
 
-    # Compute actual data ranges for colorbars
+    # Helper for robust color ranges
+    def robust_range(vals, pct):
+        v = vals[~np.isnan(vals)] if vals is not None else np.array([0, 1])
+        if trim_termini > 0 and len(v) > 2 * trim_termini:
+            v = v[trim_termini:-trim_termini]
+        return (np.percentile(v, pct), np.percentile(v, 100 - pct))
+
     rob_vals = robustness_df["std_ddg"].values if robustness_df is not None else None
     rmsf_vals = rmsf_df["rmsf"].values if rmsf_df is not None else None
     plddt_vals = plddt_df["plddt"].values if plddt_df is not None else None
+    bfac_vals = bfactor_df["bfactor"].values if bfactor_df is not None else None
 
-    data_ranges = []
-    for vals in [rob_vals, rmsf_vals, plddt_vals]:
-        if vals is not None:
-            data_ranges.append((np.nanpercentile(vals, 2), np.nanpercentile(vals, 98)))
-        else:
-            data_ranges.append((0, 1))
+    # 2x2 panel layout: left = predictors, right = targets
+    #   (b) std(DDG)   (d) RMSF
+    #   (c) pLDDT      (e) B-factor
+    rwb = LinearSegmentedColormap.from_list("rwb", ["red", "white", "blue"])
+    bwr = LinearSegmentedColormap.from_list("bwr", ["blue", "white", "red"])
 
-    # Layout: top = line plot (a), bottom = 3 structure panels (b,c,d)
-    fig = plt.figure(figsize=(14, 8))
-    gs = GridSpec(2, n_struct, figure=fig, height_ratios=[0.8, 1.2],
-                  hspace=0.08, wspace=0.02)
+    panels_2x2 = [
+        # row 0, col 0: robustness
+        {"img": img_rob, "label": "(b)", "title": rob_title,
+         "cmap": rwb, "vmin_label": "flexible", "vmax_label": "rigid",
+         "range": robust_range(rob_vals, clip_pct), "row": 0, "col": 0},
+        # row 0, col 1: RMSF
+        {"img": img_rmsf, "label": "(d)", "title": rmsf_title,
+         "cmap": bwr, "vmin_label": "rigid", "vmax_label": "flexible",
+         "range": robust_range(rmsf_vals, clip_pct), "row": 0, "col": 1},
+    ]
+    if has_plddt:
+        panels_2x2.append(
+            {"img": img_plddt, "label": "(c)", "title": plddt_title,
+             "cmap": rwb, "vmin_label": "flexible", "vmax_label": "rigid",
+             "range": robust_range(plddt_vals, clip_pct), "row": 1, "col": 0})
+    if has_bfac:
+        panels_2x2.append(
+            {"img": img_bfac, "label": "(e)", "title": bfac_title,
+             "cmap": bwr, "vmin_label": "rigid", "vmax_label": "flexible",
+             "range": robust_range(bfac_vals, clip_pct), "row": 1, "col": 1})
 
-    # --- Top row: line plot spanning all columns ---
+    # Figure layout: line plot on top, 2x2 structure grid below
+    fig = plt.figure(figsize=(12, 11))
+    gs = GridSpec(3, 2, figure=fig, height_ratios=[0.6, 1.0, 1.0],
+                  hspace=0.12, wspace=0.04)
+
+    # --- Top row: line plot spanning both columns ---
     ax_a = fig.add_subplot(gs[0, :])
     ax_a.imshow(img_lineplot)
     ax_a.axis("off")
 
-    # --- Bottom row: structure panels ---
-    for i, info in enumerate(panel_info):
-        ax = fig.add_subplot(gs[1, i])
+    # --- Bottom 2x2: structure panels ---
+    for info in panels_2x2:
+        ax = fig.add_subplot(gs[1 + info["row"], info["col"]])
         ax.imshow(info["img"])
         ax.axis("off")
         # Panel label top-left
         ax.text(0.02, 0.98, info["label"], transform=ax.transAxes,
                 fontsize=14, fontweight="bold", va="top", ha="left")
-        # Title above panel
-        ax.set_title(info["title"], fontsize=11, fontweight="bold", pad=4)
+        # Title above panel (smaller font for multi-line with rho)
+        ax.set_title(info["title"], fontsize=9, fontweight="bold", pad=4)
 
         # Horizontal colorbar below the structure image
         cbar_ax = ax.inset_axes([0.15, 0.02, 0.7, 0.025])
-        vmin, vmax = data_ranges[i]
+        vmin, vmax = info["range"]
         norm = plt.Normalize(vmin=vmin, vmax=vmax)
         sm = plt.cm.ScalarMappable(cmap=info["cmap"], norm=norm)
         cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
@@ -567,13 +605,33 @@ def process_protein(protein_id: str, args):
         rho_rmsf = rho
         print(f"  Spearman rho (std_ddg vs RMSF): {rho:.3f} (p={pval:.2e})")
 
-    rho_plddt = None
+    rho_plddt_rmsf = None
     if plddt_df is not None and rmsf_df is not None:
         rho, pval = stats.spearmanr(plddt_df["plddt"].values,
                                      rmsf_df["rmsf"].values,
                                      nan_policy="omit")
-        rho_plddt = rho
+        rho_plddt_rmsf = rho
         print(f"  Spearman rho (pLDDT vs RMSF): {rho:.3f} (p={pval:.2e})")
+
+    rho_rob_bfac = None
+    if bfactor_df is not None:
+        mask = bfactor_df["bfactor"].notna()
+        if mask.sum() > 10:
+            rho, pval = stats.spearmanr(robustness_df.loc[mask, "std_ddg"].values,
+                                         bfactor_df.loc[mask, "bfactor"].values,
+                                         nan_policy="omit")
+            rho_rob_bfac = rho
+            print(f"  Spearman rho (std_ddg vs B-factor): {rho:.3f} (p={pval:.2e})")
+
+    rho_plddt_bfac = None
+    if plddt_df is not None and bfactor_df is not None:
+        mask = bfactor_df["bfactor"].notna()
+        if mask.sum() > 10:
+            rho, pval = stats.spearmanr(plddt_df.loc[mask, "plddt"].values,
+                                         bfactor_df.loc[mask, "bfactor"].values,
+                                         nan_policy="omit")
+            rho_plddt_bfac = rho
+            print(f"  Spearman rho (pLDDT vs B-factor): {rho:.3f} (p={pval:.2e})")
 
     # --- Save extracted data as TSV (for reference) ---
     merged = robustness_df[["position", "wt_aa", "std_ddg", "mean_abs_ddg"]].copy()
@@ -612,11 +670,13 @@ def process_protein(protein_id: str, args):
         if pdb_path is None:
             print("ERROR: Cannot generate PyMOL panels without PDB file")
         else:
-            print("Generating PyMOL script (Panels B-D)...")
+            print("Generating PyMOL script (Panels B-E)...")
             pml_script = generate_pymol_script(
                 str(pdb_path), protein_id, chain,
-                robustness_df, rmsf_df, plddt_df,
-                args.output_dir, args.width, args.height)
+                robustness_df, rmsf_df, plddt_df, bfactor_df,
+                args.output_dir, args.width, args.height,
+                clip_pct=args.clip_pct,
+                trim_termini=args.trim_termini)
 
             pml_path = out / f"{protein_id}_pymol_render.py"
             with open(pml_path, "w") as f:
@@ -646,8 +706,13 @@ def process_protein(protein_id: str, args):
                             robustness_df=robustness_df,
                             rmsf_df=rmsf_df,
                             plddt_df=plddt_df,
+                            bfactor_df=bfactor_df,
                             rho_rmsf=rho_rmsf,
-                            rho_plddt=rho_plddt)
+                            rho_plddt_rmsf=rho_plddt_rmsf,
+                            rho_rob_bfac=rho_rob_bfac,
+                            rho_plddt_bfac=rho_plddt_bfac,
+                            clip_pct=args.clip_pct,
+                            trim_termini=args.trim_termini)
         except ImportError:
             print("  Pillow not installed, skipping composite (pip install Pillow)")
         except Exception as e:
@@ -683,6 +748,12 @@ def main():
     parser.add_argument("--smooth-window", type=int, default=0,
                         help="Rolling average window for robustness trace "
                              "(0 = no smoothing)")
+    parser.add_argument("--clip-pct", type=float, default=10.0,
+                        help="Percentile for robust color clipping in PyMOL "
+                             "renders (default: 10 = 10th-90th percentile)")
+    parser.add_argument("--trim-termini", type=int, default=0,
+                        help="Exclude N first/last residues from color range "
+                             "computation (0 = use all residues)")
     parser.add_argument("--width", type=int, default=2400,
                         help="PyMOL render width in pixels")
     parser.add_argument("--height", type=int, default=1800,
