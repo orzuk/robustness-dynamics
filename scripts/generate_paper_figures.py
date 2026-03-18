@@ -1043,8 +1043,8 @@ def generate_supp_nmr_fig1(results: dict, output_dir: Path):
         ax_h.set_ylabel("Count")
         ax_h.set_xlim([-1, 1])
         ax_h.legend(frameon=False)
-        # Panel label added by LaTeX
-        # _add_panel_label(ax_h, letter)
+        _add_panel_label(ax_h, "a")
+        _add_panel_label(ax_s, "b")
 
         plt.tight_layout()
         for ext in ["pdf", "png"]:
