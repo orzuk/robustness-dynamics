@@ -293,14 +293,14 @@ def load_domains(domains_path: Optional[str]) -> list:
     return domains
 
 
-# Default pastel palette for domain shading (moderately saturated)
+# Default pastel palette for domain shading (light-medium saturation)
 _DOMAIN_COLORS = [
-    "#B3D4F0",  # medium blue
-    "#FCBBA1",  # medium salmon
-    "#B5DFB5",  # medium green
-    "#D4C8E8",  # medium lavender
-    "#FFE680",  # medium yellow
-    "#F9B9D4",  # medium pink
+    "#C8DEF5",  # light-medium blue
+    "#FDD0B4",  # light-medium salmon
+    "#CCEBCC",  # light-medium green
+    "#E0D6EE",  # light-medium lavender
+    "#FFF0A0",  # light-medium yellow
+    "#FBCCE0",  # light-medium pink
 ]
 
 # Metric colors (shared between line plot and structure panel titles)
@@ -343,7 +343,7 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
     if domains:
         for i, dom in enumerate(domains):
             color = dom.get("color", _DOMAIN_COLORS[i % len(_DOMAIN_COLORS)])
-            ax.axvspan(dom["start"], dom["end"], alpha=0.7, color=color,
+            ax.axvspan(dom["start"], dom["end"], alpha=0.6, color=color,
                        zorder=0)
             mid = (dom["start"] + dom["end"]) / 2
             # Place domain labels above the plot area (above the box)
@@ -375,15 +375,13 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
                 linestyle="--", label="B-factor")
 
     ax.axhline(0, color="gray", linewidth=0.5, linestyle="-")
-    ax.set_xlabel("Residue position", fontsize=11)
+    # Combine protein name with x-axis label to avoid overlap with domain text
+    prot_label = protein_id.upper().replace("_", " chain ")
+    ax.set_xlabel(f"{prot_label} — residue position", fontsize=11)
     ax.set_ylabel("Z-scored value", fontsize=11)
 
-    # Title: just protein name (no rho — rho goes on structure panel subtitles)
-    title = protein_id.upper().replace("_", " chain ")
-    ax.set_title(title, fontsize=12)
-
     ax.legend(loc="upper right", fontsize=9, frameon=True, framealpha=0.85,
-              edgecolor="none", bbox_to_anchor=(0.92, 0.82))
+              edgecolor="none", bbox_to_anchor=(0.99, 0.88))
     ax.set_xlim(positions[0], positions[-1])
     ax.tick_params(labelsize=9)
 
@@ -417,13 +415,12 @@ def save_standalone_panel(img_path: str, output_path: str, label: str,
     ax.imshow(img)
     ax.axis("off")
 
-    # Panel label — top-left corner
+    # Panel label and title — top-left corner, same height
     ax.text(0.02, 0.98, label, transform=ax.transAxes,
             fontsize=14, fontweight="bold", va="top", ha="left")
-
-    # Title above panel (colored to match line plot trace)
-    ax.set_title(title, fontsize=10, fontweight="bold", pad=6,
-                 color=title_color)
+    ax.text(0.10, 0.98, title, transform=ax.transAxes,
+            fontsize=10, fontweight="bold", va="top", ha="left",
+            color=title_color)
 
     # Horizontal colorbar below the structure image
     cbar_ax = ax.inset_axes([0.15, 0.02, 0.7, 0.025])
@@ -640,10 +637,10 @@ def composite_figure(protein_id: str, output_dir: str,
              "range": robust_range(bfac_vals, clip_pct), "row": 1, "col": 1,
              "title_color": METRIC_COLORS["bfactor"]})
 
-    # Figure layout: line plot on top, 2x2 structure grid below
-    fig = plt.figure(figsize=(12, 11))
-    gs = GridSpec(3, 2, figure=fig, height_ratios=[0.6, 1.0, 1.0],
-                  hspace=0.12, wspace=0.04)
+    # Figure layout: line plot on top, 2x2 structure grid below (tight)
+    fig = plt.figure(figsize=(12, 10))
+    gs = GridSpec(3, 2, figure=fig, height_ratios=[0.55, 1.0, 1.0],
+                  hspace=0.02, wspace=0.04)
 
     # --- Top row: line plot spanning both columns ---
     ax_a = fig.add_subplot(gs[0, :])
@@ -655,12 +652,12 @@ def composite_figure(protein_id: str, output_dir: str,
         ax = fig.add_subplot(gs[1 + info["row"], info["col"]])
         ax.imshow(info["img"])
         ax.axis("off")
-        # Panel label top-left
+        # Panel label and title — top-left corner, same height
         ax.text(0.02, 0.98, info["label"], transform=ax.transAxes,
                 fontsize=14, fontweight="bold", va="top", ha="left")
-        # Title above panel (colored to match line plot trace)
-        ax.set_title(info["title"], fontsize=9, fontweight="bold", pad=4,
-                     color=info.get("title_color", "black"))
+        ax.text(0.10, 0.98, info["title"], transform=ax.transAxes,
+                fontsize=9, fontweight="bold", va="top", ha="left",
+                color=info.get("title_color", "black"))
 
         # Horizontal colorbar below the structure image
         cbar_ax = ax.inset_axes([0.15, 0.02, 0.7, 0.025])
