@@ -41,61 +41,60 @@ def main():
     print(f"\nFirst few rows:")
     print(df.head())
 
-    # Try to identify relevant columns
-    # Expected: protein_id, n_residues, rho_std_ddg (or similar), rho_plddt
-    id_col = [c for c in df.columns if "protein" in c.lower() or "id" in c.lower()]
-    n_col = [c for c in df.columns if "n_res" in c.lower() or "length" in c.lower() or "n_" in c.lower()]
-    rho_rob_col = [c for c in df.columns if "rho" in c.lower() and ("std" in c.lower() or "rob" in c.lower())]
-    rho_plddt_col = [c for c in df.columns if "rho" in c.lower() and "plddt" in c.lower()]
-
-    print(f"\nDetected columns:")
-    print(f"  ID: {id_col}")
-    print(f"  N residues: {n_col}")
-    print(f"  rho_rob: {rho_rob_col}")
-    print(f"  rho_plddt: {rho_plddt_col}")
+    # Use exact column names based on known schema
+    id_col = ["protein_id"] if "protein_id" in df.columns else []
+    n_col = ["seq_length"] if "seq_length" in df.columns else []
+    rho_rob_col = ["rho_robustness_rmsf"] if "rho_robustness_rmsf" in df.columns else []
+    rho_plddt_col = ["rho_plddt_rmsf"] if "rho_plddt_rmsf" in df.columns else []
+    # Also grab B-factor correlations
+    rho_rob_bfac_col = ["rho_robustness_bfactor_target"] if "rho_robustness_bfactor_target" in df.columns else []
+    rho_plddt_bfac_col = ["rho_plddt_bfactor"] if "rho_plddt_bfactor" in df.columns else []
 
     if not (id_col and rho_rob_col):
-        print("\nCould not auto-detect columns. Printing all column names:")
+        print("Could not find required columns. Available:")
         for c in df.columns:
-            print(f"  {c}: {df[c].dtype}  sample={df[c].iloc[0]}")
+            print(f"  {c}")
         return
-
-    id_c = id_col[0]
-    rho_rob_c = rho_rob_col[0]
 
     # Filter
     filt = df.copy()
-    filt["abs_rho_rob"] = filt[rho_rob_c].abs()
+    filt["abs_rho_rob"] = filt["rho_robustness_rmsf"].abs()
     filt = filt[filt["abs_rho_rob"] >= args.min_rho]
-    print(f"\nAfter |rho_rob| >= {args.min_rho}: {len(filt)} proteins")
+    print(f"\nAfter |rho_rob_rmsf| >= {args.min_rho}: {len(filt)} proteins")
 
-    if n_col:
-        n_c = n_col[0]
-        filt = filt[filt[n_c] <= args.max_length]
-        print(f"After length <= {args.max_length}: {len(filt)} proteins")
+    filt = filt[filt["seq_length"] <= args.max_length]
+    print(f"After length <= {args.max_length}: {len(filt)} proteins")
 
-    if rho_plddt_col:
-        rho_plddt_c = rho_plddt_col[0]
-        filt["abs_rho_plddt"] = filt[rho_plddt_c].abs()
-        filt["rob_wins"] = filt["abs_rho_rob"] > filt["abs_rho_plddt"]
-        filt["rho_advantage"] = filt["abs_rho_rob"] - filt["abs_rho_plddt"]
+    filt["abs_rho_plddt"] = filt["rho_plddt_rmsf"].abs()
+    filt["rob_wins_rmsf"] = filt["abs_rho_rob"] > filt["abs_rho_plddt"]
+    filt["adv_rmsf"] = filt["abs_rho_rob"] - filt["abs_rho_plddt"]
 
-        winners = filt[filt["rob_wins"]].copy()
-        print(f"Robustness beats pLDDT: {len(winners)} proteins")
+    # Also check B-factor
+    if rho_rob_bfac_col and rho_plddt_bfac_col:
+        filt["abs_rho_rob_bfac"] = filt["rho_robustness_bfactor_target"].abs()
+        filt["abs_rho_plddt_bfac"] = filt["rho_plddt_bfactor"].abs()
+        filt["rob_wins_bfac"] = filt["abs_rho_rob_bfac"] > filt["abs_rho_plddt_bfac"]
+        filt["adv_bfac"] = filt["abs_rho_rob_bfac"] - filt["abs_rho_plddt_bfac"]
+        filt["rob_wins_both"] = filt["rob_wins_rmsf"] & filt["rob_wins_bfac"]
 
-        # Sort by advantage (how much robustness wins by)
-        winners = winners.sort_values("rho_advantage", ascending=False)
+    winners = filt[filt["rob_wins_rmsf"]].copy()
+    print(f"Robustness beats pLDDT (RMSF): {len(winners)} proteins")
 
-        cols_to_show = [id_c, rho_rob_c, rho_plddt_c, "rho_advantage"]
-        if n_col:
-            cols_to_show.insert(1, n_col[0])
+    if "rob_wins_both" in filt.columns:
+        both = filt[filt["rob_wins_both"]]
+        print(f"Robustness beats pLDDT (BOTH RMSF + B-factor): {len(both)} proteins")
 
-        print(f"\n=== Top {args.top_n} candidates (robustness wins, sorted by advantage) ===")
-        print(winners[cols_to_show].head(args.top_n).to_string(index=False))
-    else:
-        filt = filt.sort_values("abs_rho_rob", ascending=False)
-        print(f"\n=== Top {args.top_n} by |rho_rob| (no pLDDT column found) ===")
-        print(filt.head(args.top_n).to_string(index=False))
+    # Sort by RMSF advantage
+    winners = winners.sort_values("adv_rmsf", ascending=False)
+
+    cols = ["protein_id", "seq_length", "rho_robustness_rmsf", "rho_plddt_rmsf", "adv_rmsf"]
+    if "adv_bfac" in winners.columns:
+        cols += ["rho_robustness_bfactor_target", "rho_plddt_bfactor", "adv_bfac", "rob_wins_bfac"]
+
+    print(f"\n=== Top {args.top_n} candidates (rob wins RMSF, sorted by advantage) ===")
+    pd.set_option("display.max_columns", 20)
+    pd.set_option("display.width", 200)
+    print(winners[cols].head(args.top_n).to_string(index=False))
 
 
 if __name__ == "__main__":
