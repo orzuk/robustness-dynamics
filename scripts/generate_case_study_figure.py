@@ -543,8 +543,8 @@ def composite_figure(protein_id: str, output_dir: str,
     """Combine panels into a single matplotlib figure.
 
     Layout:  (a) line plot on top (full width)
-             (b) std(DDG)   (d) RMSF       2x2 grid below
-             (c) pLDDT      (e) B-factor
+             (b) std(DDG)   (c) pLDDT      2x2 grid below
+             (d) RMSF       (e) B-factor
     """
     out = Path(output_dir)
     panel_lineplot = out / f"{protein_id}_panel_A_lineplot.png"
@@ -598,9 +598,9 @@ def composite_figure(protein_id: str, output_dir: str,
     plddt_vals = plddt_df["plddt"].values if plddt_df is not None else None
     bfac_vals = bfactor_df["bfactor"].values if bfactor_df is not None else None
 
-    # 2x2 panel layout: left = predictors, right = targets
-    #   (b) std(DDG)   (d) RMSF
-    #   (c) pLDDT      (e) B-factor
+    # 2x2 panel layout: top = predictors, bottom = targets
+    #   (b) std(DDG)   (c) pLDDT
+    #   (d) RMSF       (e) B-factor
     rwb = LinearSegmentedColormap.from_list("rwb", ["red", "white", "blue"])
     bwr = LinearSegmentedColormap.from_list("bwr", ["blue", "white", "red"])
 
@@ -609,16 +609,18 @@ def composite_figure(protein_id: str, output_dir: str,
         {"img": img_rob, "label": "(b)", "title": rob_title,
          "cmap": rwb, "vmin_label": "flexible", "vmax_label": "rigid",
          "range": robust_range(rob_vals, clip_pct), "row": 0, "col": 0},
-        # row 0, col 1: RMSF
-        {"img": img_rmsf, "label": "(d)", "title": rmsf_title,
-         "cmap": bwr, "vmin_label": "rigid", "vmax_label": "flexible",
-         "range": robust_range(rmsf_vals, clip_pct), "row": 0, "col": 1},
     ]
     if has_plddt:
         panels_2x2.append(
+            # row 0, col 1: pLDDT
             {"img": img_plddt, "label": "(c)", "title": plddt_title,
              "cmap": rwb, "vmin_label": "flexible", "vmax_label": "rigid",
-             "range": robust_range(plddt_vals, clip_pct), "row": 1, "col": 0})
+             "range": robust_range(plddt_vals, clip_pct), "row": 0, "col": 1})
+    panels_2x2.append(
+        # row 1, col 0: RMSF
+        {"img": img_rmsf, "label": "(d)", "title": rmsf_title,
+         "cmap": bwr, "vmin_label": "rigid", "vmax_label": "flexible",
+         "range": robust_range(rmsf_vals, clip_pct), "row": 1, "col": 0})
     if has_bfac:
         panels_2x2.append(
             {"img": img_bfac, "label": "(e)", "title": bfac_title,

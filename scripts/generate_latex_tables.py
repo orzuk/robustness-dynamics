@@ -168,7 +168,7 @@ def generate_table1(results: dict) -> str:
     lines.append(r"All pooled correlations significant at $p < 10^{-10}$.")
     lines.append(r"Partial correlations and incremental $R^2$ are in Supplementary Table~\ref{tab:supp_partial}.}")
     lines.append(r"\label{tab:pooled}")
-    lines.append(r"\small")
+    lines.append(r"\footnotesize")
     n_cols = len(TABLE1_COLUMNS)
     col_spec = "r" * n_cols
     lines.append(r"\begin{tabular}{@{}l " + col_spec + r"@{}}")
@@ -329,7 +329,7 @@ def generate_table2(results: dict) -> str:
     lines.append(r"pLDDT values shown in parentheses where available.")
     lines.append(r"Best $|\rho|$ within each column (across structural classes) is shown in \textbf{bold}.}")
     lines.append(r"\label{tab:stratified}")
-    lines.append(r"\small")
+    lines.append(r"\footnotesize")
     n_cols = len(TABLE1_COLUMNS)
     col_spec = "r" * n_cols
     lines.append(r"\begin{tabular}{@{}l " + col_spec + r"@{}}")
@@ -422,7 +422,7 @@ def generate_table3(results: dict) -> str:
     lines.append(r"``Feats'' = number of input features.")
     lines.append(r"Best value in each column section is shown in \textbf{bold}.}")
     lines.append(r"\label{tab:alt_and_multi}")
-    lines.append(r"\small")
+    lines.append(r"\footnotesize")
     n_cols = len(TABLE1_COLUMNS)
     col_spec = "r" * n_cols
     lines.append(r"\begin{tabular}{@{}l r " + col_spec + r"@{}}")
@@ -587,7 +587,7 @@ def generate_table_s1(results: dict) -> str:
     lines.append(r"Conservation scores from ConSurf Rate4Site (ATLAS only).")
     lines.append(r"All partial correlations significant at $p < 10^{-6}$.}")
     lines.append(r"\label{tab:supp_partial}")
-    lines.append(r"\small")
+    lines.append(r"\footnotesize")
     n_cols = len(TABLE1_COLUMNS)
     col_spec = "r" * n_cols
     lines.append(r"\begin{tabular}{@{}l " + col_spec + r"@{}}")

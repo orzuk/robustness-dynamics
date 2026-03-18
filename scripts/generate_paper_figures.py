@@ -156,7 +156,7 @@ def _load_pooled_data(dataset, scorer) -> pd.DataFrame:
 def generate_fig1(results: dict, output_dir: Path):
     """Per-protein rho histograms + scatter plots, one row per dataset-target."""
     n_panels = len(FIG1_PANELS)
-    fig, axes = plt.subplots(n_panels, 2, figsize=(12, 4 * n_panels))
+    fig, axes = plt.subplots(n_panels, 2, figsize=(14, 5 * n_panels))
     if n_panels == 1:
         axes = axes[np.newaxis, :]
 
@@ -332,7 +332,8 @@ def generate_fig1(results: dict, output_dir: Path):
         ax_h.set_xlabel(r"Per-protein Spearman $\rho$")
         ax_h.set_ylabel("Count")
         ax_h.set_xlim([-1, 1])
-        ax_h.legend(frameon=False)
+        if row_idx == 0:
+            ax_h.legend(frameon=False)
         _add_panel_label(ax_h, letter)
 
         plt.tight_layout()
@@ -423,7 +424,7 @@ def _density_scatter_panels(panels, fig, use_raw: bool):
         hb = ax_main.hexbin(x[mask], y[mask], gridsize=40, cmap="Blues",
                              mincnt=1, linewidths=0.2)
         cb = fig.colorbar(hb, ax=ax_right, pad=0.1, shrink=0.8)
-        cb.set_label("Count", fontsize=11)
+        cb.set_label("Density", fontsize=11)
         cb.ax.tick_params(labelsize=10)
         ax_main.set_xlabel(x_label)
         ax_main.set_ylabel(y_label)
@@ -440,7 +441,7 @@ def _density_scatter_panels(panels, fig, use_raw: bool):
 
         rho = scipy_stats.spearmanr(x, y)[0]
         ax_top.set_title(f"{ds.display_name} {target_label} "
-                         f"($\\rho = {rho:.3f}$, $n = {len(x):,}$)",
+                         f"($\\rho = {rho:.3f}$)",
                          fontsize=14, fontweight="bold")
 
 
@@ -488,7 +489,7 @@ def _single_density_scatter(ds_name, target, use_raw, output_dir, fig_num, lette
     hb = ax_main.hexbin(x[mask], y[mask], gridsize=40, cmap="Blues",
                          mincnt=1, linewidths=0.2)
     cb = fig.colorbar(hb, ax=ax_right, pad=0.1, shrink=0.8)
-    cb.set_label("Count", fontsize=11)
+    cb.set_label("Density", fontsize=11)
     cb.ax.tick_params(labelsize=10)
     ax_main.set_xlabel(x_label)
     ax_main.set_ylabel(y_label)
@@ -505,7 +506,7 @@ def _single_density_scatter(ds_name, target, use_raw, output_dir, fig_num, lette
 
     rho = scipy_stats.spearmanr(x, y)[0]
     ax_top.set_title(f"{ds.display_name} {target_label} "
-                     f"($\\rho = {rho:.3f}$, $n = {len(x):,}$)",
+                     f"($\\rho = {rho:.3f}$)",
                      fontsize=14, fontweight="bold")
     _add_panel_label(ax_top, letter)
 
@@ -630,7 +631,10 @@ def generate_fig3(results: dict, output_dir: Path):
         ax_r2.set_ylabel("CV $R^2$")
         ax_r2.set_title(f"{title}: model comparison", fontweight="bold")
         # Legend on every left panel (datasets differ by row)
-        ax_r2.legend(frameon=False)
+        ax_r2.legend(frameon=False, loc="upper left")
+        legend = ax_r2.get_legend()
+        if legend:
+            legend.set_bbox_to_anchor((0.05, 0.95))
 
         # ---- Right: 24-feature Ridge coefficients with error bars ----
         ax_coef = axes[row_idx, 1]
@@ -722,7 +726,10 @@ def generate_fig3(results: dict, output_dir: Path):
             ax_l.set_xticklabels([model_display[m] for m in all_model_names_l], rotation=45, ha="right")
         ax_l.set_ylabel("CV $R^2$")
         ax_l.set_title(f"{title}: model comparison", fontweight="bold")
-        ax_l.legend(frameon=False)
+        ax_l.legend(frameon=False, loc="upper left")
+        legend = ax_l.get_legend()
+        if legend:
+            legend.set_bbox_to_anchor((0.05, 0.95))
         _add_panel_label(ax_l, rl)
         plt.tight_layout()
         for ext in ["pdf", "png"]:
