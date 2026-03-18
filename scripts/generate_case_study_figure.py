@@ -303,12 +303,12 @@ _DOMAIN_COLORS = [
     "#FBCCE0",  # light-medium pink
 ]
 
-# Metric colors (shared between line plot and structure panel titles)
+# Metric colors: predictors = blue family, responses = red family
 METRIC_COLORS = {
-    "std_ddg": "#2166AC",   # blue
-    "plddt":   "#D6604D",   # red/salmon
-    "rmsf":    "#4DAF4A",   # green
-    "bfactor": "#984EA3",   # purple
+    "std_ddg": "#053061",   # very dark blue  (predictor)
+    "plddt":   "#92C5DE",   # light blue      (predictor)
+    "rmsf":    "#F4A582",   # light red/salmon (response)
+    "bfactor": "#8B0000",   # very dark red    (response)
 }
 
 
@@ -343,7 +343,7 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
     if domains:
         for i, dom in enumerate(domains):
             color = dom.get("color", _DOMAIN_COLORS[i % len(_DOMAIN_COLORS)])
-            ax.axvspan(dom["start"], dom["end"], alpha=0.6, color=color,
+            ax.axvspan(dom["start"], dom["end"], alpha=0.5, color=color,
                        zorder=0)
             mid = (dom["start"] + dom["end"]) / 2
             # Place domain labels above the plot area (above the box)
@@ -352,36 +352,36 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
                     transform=ax.get_xaxis_transform(), clip_on=False,
                     zorder=1)
 
-    # Predictors: solid lines
-    ax.plot(positions, -z_rob, color="#2166AC", linewidth=1.5, alpha=0.85,
+    # Predictors: solid lines (blue family)
+    ax.plot(positions, -z_rob, color=METRIC_COLORS["std_ddg"], linewidth=1.5, alpha=0.85,
             label=r"$-\mathrm{std}(\Delta\Delta G)$")
     if z_plddt is not None:
-        ax.plot(positions, -z_plddt, color="#D6604D", linewidth=1.5, alpha=0.85,
+        ax.plot(positions, -z_plddt, color=METRIC_COLORS["plddt"], linewidth=1.5, alpha=0.85,
                 label=r"$-$pLDDT")
 
     # Optional smoothed robustness trace
     if smooth_window > 0:
         smoothed = pd.Series(-z_rob).rolling(
             window=smooth_window, center=True, min_periods=1).mean().values
-        ax.plot(positions, smoothed, color="#2166AC", linewidth=2.5, alpha=0.9,
+        ax.plot(positions, smoothed, color=METRIC_COLORS["std_ddg"], linewidth=2.5, alpha=0.9,
                 label=f"smoothed (w={smooth_window})")
 
-    # Targets: dashed lines (same width as predictors)
+    # Targets: dashed lines (warm family)
     if z_rmsf is not None:
-        ax.plot(positions, z_rmsf, color="#4DAF4A", linewidth=1.5, alpha=0.85,
+        ax.plot(positions, z_rmsf, color=METRIC_COLORS["rmsf"], linewidth=1.5, alpha=0.85,
                 linestyle="--", label="RMSF")
     if z_bfac is not None:
-        ax.plot(positions, z_bfac, color="#984EA3", linewidth=1.5, alpha=0.85,
+        ax.plot(positions, z_bfac, color=METRIC_COLORS["bfactor"], linewidth=1.5, alpha=0.85,
                 linestyle="--", label="B-factor")
 
     ax.axhline(0, color="gray", linewidth=0.5, linestyle="-")
     # Combine protein name with x-axis label to avoid overlap with domain text
     prot_label = protein_id.upper().replace("_", " chain ")
-    ax.set_xlabel(f"{prot_label} — residue position", fontsize=11)
+    ax.set_xlabel(f"{prot_label} - residue position", fontsize=11)
     ax.set_ylabel("Z-scored value", fontsize=11)
 
     ax.legend(loc="upper right", fontsize=9, frameon=True, framealpha=0.85,
-              edgecolor="none", bbox_to_anchor=(0.99, 0.88))
+              edgecolor="none", bbox_to_anchor=(0.99, 0.97))
     ax.set_xlim(positions[0], positions[-1])
     ax.tick_params(labelsize=9)
 
@@ -404,9 +404,10 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
 def save_standalone_panel(img_path: str, output_path: str, label: str,
                           title: str, cmap, vmin: float, vmax: float,
                           vmin_label: str, vmax_label: str,
-                          figsize=(6, 5), title_color: str = "black"):
+                          figsize=(6, 5), title_color: str = "black",
+                          units: str = ""):
     """Wrap a rendered structure image into a standalone figure with
-    panel label (top-left), title (colored to match line plot), and colorbar."""
+    colorbar showing numeric range and units.  Label/title handled by LaTeX."""
     from matplotlib.colors import LinearSegmentedColormap
     import matplotlib.image as mpimg
 
@@ -415,23 +416,18 @@ def save_standalone_panel(img_path: str, output_path: str, label: str,
     ax.imshow(img)
     ax.axis("off")
 
-    # Panel label and title — top-left corner, same height
-    ax.text(0.02, 0.98, label, transform=ax.transAxes,
-            fontsize=14, fontweight="bold", va="top", ha="left")
-    ax.text(0.10, 0.98, title, transform=ax.transAxes,
-            fontsize=10, fontweight="bold", va="top", ha="left",
-            color=title_color)
-
-    # Horizontal colorbar below the structure image
-    cbar_ax = ax.inset_axes([0.15, 0.02, 0.7, 0.025])
+    # Horizontal colorbar below the structure image with numeric ticks
+    cbar_ax = ax.inset_axes([0.12, 0.02, 0.76, 0.03])
     norm = plt.Normalize(vmin=vmin, vmax=vmax)
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
     cbar.ax.tick_params(labelsize=7)
-    cbar.ax.text(-0.02, 0.5, vmin_label, transform=cbar.ax.transAxes,
-                 fontsize=6.5, va="center", ha="right", fontstyle="italic")
-    cbar.ax.text(1.02, 0.5, vmax_label, transform=cbar.ax.transAxes,
-                 fontsize=6.5, va="center", ha="left", fontstyle="italic")
+    # Show min/max numeric values plus units label on right
+    cbar.set_ticks([vmin, (vmin + vmax) / 2, vmax])
+    cbar.set_ticklabels([f"{vmin:.1f}", f"{(vmin + vmax) / 2:.1f}", f"{vmax:.1f}"])
+    if units:
+        cbar.ax.text(1.04, 0.5, units, transform=cbar.ax.transAxes,
+                     fontsize=7, va="center", ha="left")
 
     plt.tight_layout()
     fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
@@ -487,41 +483,42 @@ def generate_separate_panels(protein_id: str, output_dir: str,
 
     # Row 1: predictions (b) pLDDT, (c) std(DDG)
     # Row 2: responses   (d) RMSF,  (e) B-factor
+    # Each tuple: (img, out, label, title, cmap, vmin, vmax, vmin_l, vmax_l, color, units)
     panels = []
     if panel_plddt.exists():
         r = robust_range(plddt_vals, clip_pct)
         panels.append((panel_plddt, out / f"{protein_id}_fig_panel_b.png",
                         "(b)", "pLDDT" + rho_str(rho_plddt_rmsf, rho_plddt_bfac),
                         rwb, r[0], r[1], "flexible", "rigid",
-                        METRIC_COLORS["plddt"]))
+                        METRIC_COLORS["plddt"], ""))
     if panel_rob.exists():
         r = robust_range(rob_vals, clip_pct)
         panels.append((panel_rob, out / f"{protein_id}_fig_panel_c.png",
                         "(c)", r"std($\Delta\Delta G$)" + rho_str(rho_rmsf, rho_rob_bfac),
                         rwb, r[0], r[1], "flexible", "rigid",
-                        METRIC_COLORS["std_ddg"]))
+                        METRIC_COLORS["std_ddg"], "kcal/mol"))
     if panel_rmsf.exists():
         r = robust_range(rmsf_vals, clip_pct)
         panels.append((panel_rmsf, out / f"{protein_id}_fig_panel_d.png",
                         "(d)", "RMSF",
                         bwr, r[0], r[1], "rigid", "flexible",
-                        METRIC_COLORS["rmsf"]))
+                        METRIC_COLORS["rmsf"], r"$\AA$"))
     if panel_bfac.exists():
         r = robust_range(bfac_vals, clip_pct)
         panels.append((panel_bfac, out / f"{protein_id}_fig_panel_e.png",
                         "(e)", "B-factor",
                         bwr, r[0], r[1], "rigid", "flexible",
-                        METRIC_COLORS["bfactor"]))
+                        METRIC_COLORS["bfactor"], r"$\AA^2$"))
 
-    for img_path, out_path, label, title, cmap, vmin, vmax, vmin_l, vmax_l, title_color in panels:
+    for img_path, out_path, label, title, cmap, vmin, vmax, vmin_l, vmax_l, title_color, units in panels:
         save_standalone_panel(str(img_path), str(out_path), label, title,
                               cmap, vmin, vmax, vmin_l, vmax_l,
-                              title_color=title_color)
+                              title_color=title_color, units=units)
 
-    # Also copy line plot as panel_a with consistent naming
+    # Also copy line plot as panel_a with consistent naming (always overwrite)
     panel_a_src = out / f"{protein_id}_panel_A_lineplot.png"
     panel_a_dst = out / f"{protein_id}_fig_panel_a.png"
-    if panel_a_src.exists() and not panel_a_dst.exists():
+    if panel_a_src.exists():
         import shutil
         shutil.copy2(str(panel_a_src), str(panel_a_dst))
         pdf_src = out / f"{protein_id}_panel_A_lineplot.pdf"
