@@ -277,6 +277,10 @@ FIG4_PANELS = [
     ("pdb_designs", "bfactor"),
 ]
 
+# Figure 5: Case study proteins (line plot + structure panels)
+CASE_STUDY_PROTEINS = ["1ez3_B", "1qcs_A", "2vfx_C"]
+CASE_STUDY_SCORER = "thermompnn"
+
 
 # ============================================================================
 # SLURM SETTINGS

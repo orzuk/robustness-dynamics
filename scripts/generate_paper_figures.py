@@ -28,6 +28,7 @@ from paper_config import (
     DATASETS,
     FIG1_PANELS, FIG2_PANELS, FIG_NMR_PANELS,
     TABLE1_COLUMNS_ALL,
+    CASE_STUDY_PROTEINS, CASE_STUDY_SCORER,
 )
 
 # Global font settings for publication readability
@@ -1163,6 +1164,52 @@ def generate_supp_nmr_fig3(results: dict, output_dir: Path):
 
 
 # ============================================================================
+# FIGURE 5: Case study (line plots + structure panels)
+# ============================================================================
+
+def generate_fig5(results: dict, output_dir: Path):
+    """Case study figures: per-residue line plots and structure panels.
+
+    Generates separate panel files for each case study protein.
+    Structure panels (PyMOL renders) are only generated if --run-pymol
+    is used via the standalone script; here we generate line plots and
+    wrap any existing PyMOL renders into standalone panels.
+    """
+    from types import SimpleNamespace
+    from generate_case_study_figure import process_protein
+
+    atlas_ds = DATASETS["atlas"]
+
+    # Check if --run-pymol was passed to the main script
+    run_pymol = getattr(generate_fig5, '_run_pymol', False)
+
+    args = SimpleNamespace(
+        atlas_dir=atlas_ds.data_dir,
+        robustness_dir=atlas_ds.robustness_dir,
+        scorer=CASE_STUDY_SCORER,
+        output_dir=str(output_dir),
+        domains=None,              # auto-discover from data/domains/
+        smooth_window=0,
+        line_plot_only=not run_pymol,
+        run_pymol=run_pymol,
+        separate_panels=True,      # generate standalone labeled panels
+        no_composite=True,         # skip composite (using LaTeX instead)
+        clip_pct=10.0,
+        trim_termini=0,
+        width=2400,
+        height=1800,
+    )
+
+    for protein_id in CASE_STUDY_PROTEINS:
+        try:
+            process_protein(protein_id, args)
+        except Exception as e:
+            print(f"  ERROR processing {protein_id}: {e}")
+
+    print(f"  Generated case study panels for {len(CASE_STUDY_PROTEINS)} proteins")
+
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
@@ -1171,6 +1218,7 @@ FIGURE_GENERATORS = {
     "fig2": ("Fig 2 (density scatter, 4 panels)", generate_fig2),
     "fig3": ("Fig 3 (model comparison, 2 rows)", generate_fig3),
     "fig4": ("Fig 4 (DDG coefficients)", generate_fig4),
+    "fig5": ("Fig 5 (case study)", generate_fig5),
     "supp_fig1": ("Supp Fig 1 (raw scatter)", generate_supp_fig1),
     "supp_fig2": ("Supp Fig 2 (robustness vs pLDDT characterization)",
                   generate_supp_fig2),
@@ -1193,18 +1241,94 @@ def main():
     parser.add_argument("--output-dir", type=str, default=default_base,
                         help="Base output directory (figures go into Figures/ subdirectory)")
     parser.add_argument("--figure", type=str, default=None,
-                        help="Generate only this figure (e.g., 'fig1')")
+                        help="Generate only this figure (e.g., 'fig1', 'fig5')")
+    parser.add_argument("--no-case-study", action="store_true",
+                        help="Skip case study figure (fig5) generation")
+    parser.add_argument("--run-pymol", action="store_true",
+                        help="Run PyMOL for case study structure panels "
+                             "(requires pymol in PATH)")
+    parser.add_argument("--sbatch", action="store_true",
+                        help="Submit each figure as a separate SLURM job "
+                             "instead of running interactively")
+    parser.add_argument("--sbatch-time", type=str, default="01:00:00",
+                        help="SLURM time limit per figure job (default: 01:00:00)")
+    parser.add_argument("--sbatch-mem", type=str, default="16G",
+                        help="SLURM memory per figure job (default: 16G)")
+    parser.add_argument("--sbatch-partition", type=str, default="galileo",
+                        help="SLURM partition (default: galileo)")
+    parser.add_argument("--no-tar", action="store_true",
+                        help="Skip creating tar.gz archive of all figures "
+                             "(archive is created by default)")
     args = parser.parse_args()
 
+    # Determine which figures to generate
+    figs_to_gen = FIGURE_GENERATORS
+    if args.figure:
+        figs_to_gen = {args.figure: FIGURE_GENERATORS[args.figure]}
+    elif args.no_case_study:
+        figs_to_gen = {k: v for k, v in FIGURE_GENERATORS.items() if k != "fig5"}
+
+    if args.sbatch:
+        # Submit each figure as a separate SLURM job
+        import subprocess
+        from paper_config import CLUSTER
+
+        script_path = Path(__file__).resolve()
+        log_dir = Path(CLUSTER.log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        for fig_id in figs_to_gen:
+            job_name = f"fig_{fig_id}"
+            log_file = log_dir / f"{job_name}_%j.log"
+
+            # Build the command that this job will run
+            cmd_parts = [
+                f"python {script_path}",
+                f"--results {args.results}",
+                f"--output-dir {args.output_dir}",
+                f"--figure {fig_id}",
+            ]
+            if args.run_pymol:
+                cmd_parts.append("--run-pymol")
+
+            inner_cmd = " ".join(cmd_parts)
+
+            # Activate venv and run
+            sbatch_script = (
+                f"#!/bin/bash\n"
+                f"#SBATCH --job-name={job_name}\n"
+                f"#SBATCH --output={log_file}\n"
+                f"#SBATCH --time={args.sbatch_time}\n"
+                f"#SBATCH --mem={args.sbatch_mem}\n"
+                f"#SBATCH --partition={args.sbatch_partition}\n"
+                f"#SBATCH --cpus-per-task=2\n"
+                f"\n"
+                f"source {CLUSTER.venv}/bin/activate\n"
+                f"cd {CLUSTER.repo_dir}\n"
+                f"{inner_cmd}\n"
+            )
+
+            result = subprocess.run(
+                ["sbatch"], input=sbatch_script, capture_output=True,
+                text=True)
+            if result.returncode == 0:
+                print(f"  Submitted {fig_id}: {result.stdout.strip()}")
+            else:
+                print(f"  FAILED to submit {fig_id}: {result.stderr.strip()}")
+
+        print(f"\nSubmitted {len(figs_to_gen)} SLURM jobs. "
+              f"Logs in: {log_dir}/fig_*_*.log")
+        return
+
+    # Interactive mode: run directly
     with open(args.results) as f:
         results = json.load(f)
 
     out_dir = Path(args.output_dir) / "Figures"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    figs_to_gen = FIGURE_GENERATORS
-    if args.figure:
-        figs_to_gen = {args.figure: FIGURE_GENERATORS[args.figure]}
+    # Pass run_pymol flag to fig5 via function attribute
+    generate_fig5._run_pymol = args.run_pymol
 
     for fig_id, (description, generator) in figs_to_gen.items():
         print(f"Generating {description}...")
@@ -1212,6 +1336,19 @@ def main():
             generator(results, out_dir)
         except Exception as e:
             print(f"  ERROR: {e}")
+
+    # Create tar.gz archive of all figures
+    if not args.no_tar:
+        import tarfile
+        tar_path = Path(args.output_dir) / "figures.tar.gz"
+        print(f"Creating archive: {tar_path}")
+        with tarfile.open(tar_path, "w:gz") as tar:
+            for f in sorted(out_dir.iterdir()):
+                if f.is_file() and f.suffix in (".pdf", ".png"):
+                    tar.add(f, arcname=f.name)
+        n_files = sum(1 for f in out_dir.iterdir()
+                      if f.is_file() and f.suffix in (".pdf", ".png"))
+        print(f"  Archived {n_files} files -> {tar_path}")
 
     print("Done.")
 
