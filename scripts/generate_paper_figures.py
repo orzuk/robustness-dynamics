@@ -1254,8 +1254,8 @@ def main():
                         help="SLURM time limit per figure job (default: 01:00:00)")
     parser.add_argument("--sbatch-mem", type=str, default="16G",
                         help="SLURM memory per figure job (default: 16G)")
-    parser.add_argument("--sbatch-partition", type=str, default="galileo",
-                        help="SLURM partition (default: galileo)")
+    parser.add_argument("--sbatch-partition", type=str, default="glacier",
+                        help="SLURM partition (default: glacier)")
     parser.add_argument("--no-tar", action="store_true",
                         help="Skip creating tar.gz archive of all figures "
                              "(archive is created by default)")
