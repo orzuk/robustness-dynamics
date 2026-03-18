@@ -44,6 +44,30 @@ plt.rcParams.update({
 # HELPERS
 # ============================================================================
 
+# Panel labels for each dataset-target combo
+PANEL_LABELS = {
+    ("atlas", "rmsf"): "a",
+    ("bbflow", "rmsf"): "b",
+    ("atlas", "bfactor"): "c",
+    ("pdb_designs", "bfactor"): "d",
+    ("rci_s2", "bfactor"): "e",
+}
+
+PANEL_SUFFIXES = {
+    ("atlas", "rmsf"): "atlas_rmsf",
+    ("bbflow", "rmsf"): "bbflow_rmsf",
+    ("atlas", "bfactor"): "atlas_bfac",
+    ("pdb_designs", "bfactor"): "pdb_designs_bfac",
+    ("rci_s2", "bfactor"): "nmr_rci_s2",
+}
+
+
+def _add_panel_label(ax, label: str):
+    """Add a bold panel label (a), (b), etc. to top-left of axes."""
+    ax.text(0.02, 0.98, f"({label})", transform=ax.transAxes,
+            fontsize=16, fontweight="bold", va="top", ha="left")
+
+
 def _load_per_protein_tsv(dataset, scorer, target) -> pd.DataFrame:
     """Load per-protein correlations TSV for a run."""
     from paper_config import AnalysisRun
@@ -227,11 +251,94 @@ def generate_fig1(results: dict, output_dir: Path):
             ax_hist.legend(frameon=False)
 
     plt.tight_layout()
+    # Save combined figure (backward compat)
     for ext in ["pdf", "png"]:
         fig.savefig(output_dir / f"fig1_per_protein_correlations.{ext}",
                     dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("  Generated fig1_per_protein_correlations")
+
+    # Save individual panels as standalone figures
+    for row_idx, (ds_name, target) in enumerate(FIG1_PANELS):
+        ds = DATASETS[ds_name]
+        letter = PANEL_LABELS.get((ds_name, target), chr(ord('a') + row_idx))
+        suffix = PANEL_SUFFIXES.get((ds_name, target), f"panel_{letter}")
+        if target == "rmsf":
+            target_label = "RMSF"
+        elif ds_name == "rci_s2":
+            target_label = r"$1{-}S^2_\mathrm{RCI}$"
+        else:
+            target_label = "B-factor"
+        panel_label = f"{ds.display_name} {target_label}"
+
+        fig_single, (ax_h, ax_s) = plt.subplots(1, 2, figsize=(10, 4))
+
+        for scorer, color, label in [
+            ("thermompnn", "tab:blue", "ThMPNN"),
+            ("esm1v", "tab:green", "ESM-1v"),
+        ]:
+            if scorer not in ds.available_scorers:
+                continue
+            pp = _load_per_protein_tsv(ds_name, scorer, target)
+            if pp.empty:
+                continue
+            rho_candidates = [
+                f"rho_std_ddg_{target}",
+                "rho_robustness_bfactor_target" if target == "bfactor" else "rho_std_ddg_rmsf",
+            ]
+            rho_col = next((c for c in rho_candidates if c in pp.columns), None)
+            if rho_col is None:
+                for c in pp.columns:
+                    if "rho" in c and ("std_ddg" in c or "robustness_bfactor" in c):
+                        rho_col = c
+                        break
+            if rho_col is None or rho_col not in pp.columns:
+                continue
+            vals = pp[rho_col].dropna()
+            ax_h.hist(vals, bins=30, alpha=0.5, color=color, label=label)
+
+        if ds.has_plddt:
+            pp_th = _load_per_protein_tsv(ds_name, "thermompnn", target)
+            if not pp_th.empty:
+                plddt_col = f"rho_plddt_{target}"
+                if plddt_col not in pp_th.columns:
+                    plddt_col = "rho_plddt_rmsf" if target == "rmsf" else "rho_plddt_bfactor"
+                if plddt_col in pp_th.columns:
+                    vals = pp_th[plddt_col].dropna()
+                    ax_h.hist(vals, bins=30, alpha=0.5, color="tab:orange", label="pLDDT")
+
+                    rob_candidates = [
+                        f"rho_std_ddg_{target}",
+                        "rho_robustness_bfactor_target" if target == "bfactor" else "rho_std_ddg_rmsf",
+                    ]
+                    rob_col = next((c for c in rob_candidates if c in pp_th.columns), None)
+                    if rob_col is None:
+                        for c in pp_th.columns:
+                            if "rho" in c and ("std_ddg" in c or "robustness_bfactor" in c):
+                                rob_col = c
+                                break
+                    if rob_col:
+                        both = pp_th[[rob_col, plddt_col]].dropna()
+                        ax_s.scatter(both[rob_col], both[plddt_col],
+                                     alpha=0.3, s=10, c="tab:blue")
+                        lim = [-1, 1]
+                        ax_s.plot(lim, lim, "k--", alpha=0.5)
+                        ax_s.set_xlim(lim); ax_s.set_ylim(lim)
+                        ax_s.set_xlabel(r"$\rho$(rob, target)")
+                        ax_s.set_ylabel(r"$\rho$(pLDDT, target)")
+
+        ax_h.set_title(panel_label, fontweight="bold")
+        ax_h.set_xlabel(r"Per-protein Spearman $\rho$")
+        ax_h.set_ylabel("Count")
+        ax_h.set_xlim([-1, 1])
+        ax_h.legend(frameon=False)
+        _add_panel_label(ax_h, letter)
+
+        plt.tight_layout()
+        for ext in ["pdf", "png"]:
+            fig_single.savefig(output_dir / f"fig1{letter}_{suffix}.{ext}",
+                               dpi=200, bbox_inches="tight")
+        plt.close(fig_single)
+    print("  Generated fig1_per_protein_correlations (combined + individual panels)")
 
 
 # ============================================================================
@@ -335,17 +442,97 @@ def _density_scatter_panels(panels, fig, use_raw: bool):
                          fontsize=14, fontweight="bold")
 
 
+def _single_density_scatter(ds_name, target, use_raw, output_dir, fig_num, letter, suffix):
+    """Generate a single density scatter panel as its own figure."""
+    ds = DATASETS[ds_name]
+    if target == "rmsf":
+        target_label = "RMSF"
+    elif ds_name == "rci_s2":
+        target_label = r"$1{-}S^2_\mathrm{RCI}$"
+    else:
+        target_label = "B-factor"
+
+    pooled = _load_pooled_data(ds_name, "thermompnn")
+    if pooled.empty:
+        return
+    target_data = pooled[pooled["target_type"] == target]
+    if target_data.empty:
+        return
+    n_max = 50000
+    if len(target_data) > n_max:
+        target_data = target_data.sample(n_max, random_state=42)
+
+    if use_raw:
+        x = target_data["robustness_raw"].values
+        y = target_data["target_raw"].values
+        x_label = r"$\operatorname{std}(\Delta\Delta G)$ (kcal/mol)"
+        y_label = TARGET_UNITS.get(target, target_label) if ds_name != "rci_s2" else r"$1 - S^2_\mathrm{RCI}$"
+    else:
+        x = target_data["robustness_z"].values
+        y = target_data["target_z"].values
+        x_label = r"$\operatorname{std}(\Delta\Delta G)$ (z-scored)"
+        y_label = f"{target_label} (z-scored)"
+
+    y_clip = np.percentile(y, 99)
+    y_floor = np.percentile(y, 1)
+    mask = (y >= y_floor) & (y <= y_clip)
+
+    fig = plt.figure(figsize=(7, 6))
+    gs = GridSpec(4, 4, figure=fig, hspace=0.05, wspace=0.05)
+    ax_main = fig.add_subplot(gs[1:, :-1])
+    ax_top = fig.add_subplot(gs[0, :-1], sharex=ax_main)
+    ax_right = fig.add_subplot(gs[1:, -1], sharey=ax_main)
+
+    hb = ax_main.hexbin(x[mask], y[mask], gridsize=40, cmap="Blues",
+                         mincnt=1, linewidths=0.2)
+    cb = fig.colorbar(hb, ax=ax_right, pad=0.1, shrink=0.8)
+    cb.set_label("Count", fontsize=11)
+    cb.ax.tick_params(labelsize=10)
+    ax_main.set_xlabel(x_label)
+    ax_main.set_ylabel(y_label)
+    ax_main.set_ylim(y_floor, y_clip)
+
+    ax_top.hist(x, bins=50, color="tab:blue", alpha=0.7, density=True)
+    ax_top.set_ylabel("Density")
+    plt.setp(ax_top.get_xticklabels(), visible=False)
+
+    ax_right.hist(y[mask], bins=50, orientation="horizontal",
+                   color="tab:orange", alpha=0.7, density=True)
+    ax_right.set_xlabel("Density")
+    plt.setp(ax_right.get_yticklabels(), visible=False)
+
+    rho = scipy_stats.spearmanr(x, y)[0]
+    ax_top.set_title(f"{ds.display_name} {target_label} "
+                     f"($\\rho = {rho:.3f}$, $n = {len(x):,}$)",
+                     fontsize=14, fontweight="bold")
+    _add_panel_label(ax_top, letter)
+
+    for ext in ["pdf", "png"]:
+        fname = f"fig{fig_num}{letter}_{suffix}.{ext}"
+        fig.savefig(output_dir / fname, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
 def generate_fig2(results: dict, output_dir: Path):
     """2D density scatter plots with marginal distributions, one per dataset-target."""
     n_panels = len(FIG2_PANELS)
     n_rows = (n_panels + 1) // 2
+    # Combined figure (backward compat)
     fig = plt.figure(figsize=(20, 9 * n_rows))
     _density_scatter_panels(FIG2_PANELS, fig, use_raw=False)
     for ext in ["pdf", "png"]:
         fig.savefig(output_dir / f"fig2_density_scatter.{ext}",
                     dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("  Generated fig2_density_scatter")
+
+    # Individual panels
+    for ds_name, target in FIG2_PANELS:
+        letter = PANEL_LABELS.get((ds_name, target), "x")
+        suffix = PANEL_SUFFIXES.get((ds_name, target), "panel")
+        _single_density_scatter(ds_name, target, use_raw=False,
+                                output_dir=output_dir, fig_num=2,
+                                letter=letter, suffix=suffix)
+    print("  Generated fig2_density_scatter (combined + individual panels)")
 
 
 # ============================================================================
@@ -494,11 +681,93 @@ def generate_fig3(results: dict, output_dir: Path):
         # No legend on right panels (same colors as left)
 
     plt.tight_layout()
+    # Combined figure (backward compat)
     for ext in ["pdf", "png"]:
         fig.savefig(output_dir / f"fig3_model_comparison.{ext}",
                     dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("  Generated fig3_model_comparison")
+
+    # Save individual row panels
+    row_labels = ["a", "c", "e"]  # RMSF=a, Bfactor=c, NMR=e
+    row_suffixes = ["rmsf", "bfactor", "nmr_rci_s2"]
+    for row_idx, (title, target, dataset_list) in enumerate(row_configs):
+        rl = row_labels[row_idx]
+        rs = row_suffixes[row_idx]
+
+        # --- Left panel: model comparison ---
+        fig_l, ax_l = plt.subplots(figsize=(7, 5))
+        all_model_names_l = []
+        for mname in model_display:
+            for ds_name, _, _ in dataset_list:
+                run_key = f"{ds_name}_thermompnn_{target}"
+                run = results.get("runs", {}).get(run_key, {})
+                models = run.get("multi_ddg", {}).get("models", {})
+                if mname in models:
+                    if mname not in all_model_names_l:
+                        all_model_names_l.append(mname)
+                    break
+        if all_model_names_l:
+            n_m = len(all_model_names_l)
+            n_d = len(dataset_list)
+            bw = 0.8 / n_d
+            xp = np.arange(n_m)
+            for di, (ds_name, color, label) in enumerate(dataset_list):
+                run_key = f"{ds_name}_thermompnn_{target}"
+                run = results.get("runs", {}).get(run_key, {})
+                models = run.get("multi_ddg", {}).get("models", {})
+                r2v = [models.get(mn, {}).get("cv_r2_mean", 0) or 0 for mn in all_model_names_l]
+                r2s = [models.get(mn, {}).get("cv_r2_std", 0) or 0 for mn in all_model_names_l]
+                off = (di - (n_d - 1) / 2) * bw
+                ax_l.bar(xp + off, r2v, bw, yerr=r2s, color=color, alpha=0.8, capsize=2, label=label)
+            ax_l.set_xticks(xp)
+            ax_l.set_xticklabels([model_display[m] for m in all_model_names_l], rotation=45, ha="right")
+        ax_l.set_ylabel("CV $R^2$")
+        ax_l.set_title(f"{title}: model comparison", fontweight="bold")
+        ax_l.legend(frameon=False)
+        _add_panel_label(ax_l, rl)
+        plt.tight_layout()
+        for ext in ["pdf", "png"]:
+            fig_l.savefig(output_dir / f"fig3{rl}_{rs}_models.{ext}", dpi=200, bbox_inches="tight")
+        plt.close(fig_l)
+
+        # --- Right panel: coefficients ---
+        rl2 = chr(ord(rl) + 1)  # b, d, f
+        fig_r, ax_r = plt.subplots(figsize=(11, 5))
+        n_s = len(dataset_list)
+        w = 0.8 / n_s
+        x_c = np.arange(len(ALL_FEATURES), dtype=float)
+        x_c[len(AA_ORDER):] += 1.0
+        for si, (ds_name, color, label) in enumerate(dataset_list):
+            run_key = f"{ds_name}_thermompnn_{target}"
+            run = results.get("runs", {}).get(run_key, {})
+            models = run.get("multi_ddg", {}).get("models", {})
+            ridge = models.get(COEF_MODEL, {})
+            coefs = ridge.get("feature_coefs_mean")
+            if not coefs:
+                continue
+            feat_names = ridge.get("feature_names", [])
+            coef_dict = dict(zip(feat_names, coefs))
+            vals = [coef_dict.get(f, 0) for f in ALL_FEATURES]
+            coefs_se = ridge.get("feature_coefs_se")
+            coefs_std = ridge.get("feature_coefs_std")
+            err_source = coefs_se or coefs_std
+            errs = [2 * dict(zip(feat_names, err_source)).get(f, 0) for f in ALL_FEATURES] if err_source else None
+            off = (si - (n_s - 1) / 2) * w
+            ax_r.bar(x_c + off, vals, w, yerr=errs, color=color, alpha=0.8, capsize=2, label=label)
+        ax_r.set_xticks(x_c)
+        ax_r.set_xticklabels(ALL_LABELS, rotation=45, ha="right")
+        ax_r.set_ylabel("Ridge coefficient")
+        ax_r.set_title(f"{title}: Ridge coefficients (20 AA + 4 NL)", fontweight="bold")
+        ax_r.axhline(0, color="gray", linewidth=0.5)
+        sep_x = len(AA_ORDER) - 0.5 + 0.5
+        ax_r.axvline(sep_x, color="black", linewidth=1.2, linestyle="-", alpha=0.7)
+        _add_panel_label(ax_r, rl2)
+        plt.tight_layout()
+        for ext in ["pdf", "png"]:
+            fig_r.savefig(output_dir / f"fig3{rl2}_{rs}_coefs.{ext}", dpi=200, bbox_inches="tight")
+        plt.close(fig_r)
+
+    print("  Generated fig3_model_comparison (combined + individual panels)")
 
 
 def generate_fig4(results: dict, output_dir: Path):
@@ -510,13 +779,22 @@ def generate_supp_fig1(results: dict, output_dir: Path):
     """Raw (un-normalized) density scatter -- same layout as Fig 2 but raw units."""
     n_panels = len(FIG2_PANELS)
     n_rows = (n_panels + 1) // 2
+    # Combined figure (backward compat)
     fig = plt.figure(figsize=(20, 9 * n_rows))
     _density_scatter_panels(FIG2_PANELS, fig, use_raw=True)
     for ext in ["pdf", "png"]:
         fig.savefig(output_dir / f"supp_fig1_raw_scatter.{ext}",
                     dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("  Generated supp_fig1_raw_scatter")
+
+    # Individual panels
+    for ds_name, target in FIG2_PANELS:
+        letter = PANEL_LABELS.get((ds_name, target), "x")
+        suffix = PANEL_SUFFIXES.get((ds_name, target), "panel")
+        _single_density_scatter(ds_name, target, use_raw=True,
+                                output_dir=output_dir, fig_num="s1",
+                                letter=letter, suffix=suffix)
+    print("  Generated supp_fig1_raw_scatter (combined + individual panels)")
 
 
 def generate_supp_fig2(results: dict, output_dir: Path):
