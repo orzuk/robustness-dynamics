@@ -343,11 +343,13 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
     if domains:
         for i, dom in enumerate(domains):
             color = dom.get("color", _DOMAIN_COLORS[i % len(_DOMAIN_COLORS)])
-            ax.axvspan(dom["start"], dom["end"], alpha=0.5, color=color,
+            ax.axvspan(dom["start"], dom["end"], alpha=0.35, color=color,
                        zorder=0)
             mid = (dom["start"] + dom["end"]) / 2
+            # Optional text offset for crowded labels (in residue units)
+            text_x = mid + dom.get("text_offset", 0)
             # Place domain labels above the plot area (above the box)
-            ax.text(mid, 1.06, dom["name"], ha="center", va="bottom",
+            ax.text(text_x, 1.06, dom["name"], ha="center", va="bottom",
                     fontsize=11, fontstyle="italic", color="#333333",
                     transform=ax.get_xaxis_transform(), clip_on=False,
                     zorder=1)
@@ -381,13 +383,11 @@ def generate_line_plot(protein_id: str, robustness_df: pd.DataFrame,
     ax.set_ylabel("Z-scored value", fontsize=11)
 
     ax.legend(loc="upper right", fontsize=9, frameon=True, framealpha=0.85,
-              edgecolor="none", bbox_to_anchor=(0.99, 0.97))
+              edgecolor="none", bbox_to_anchor=(1.0, 1.0))
     ax.set_xlim(positions[0], positions[-1])
     ax.tick_params(labelsize=9)
 
-    # Panel label — top-left corner
-    ax.text(0.01, 0.97, "(a)", transform=ax.transAxes, fontsize=14,
-            fontweight="bold", va="top", ha="left")
+    # Panel label (a) is added by LaTeX \panelimg, not embedded here
 
     plt.tight_layout()
     out = Path(output_dir)
@@ -421,13 +421,13 @@ def save_standalone_panel(img_path: str, output_path: str, label: str,
     norm = plt.Normalize(vmin=vmin, vmax=vmax)
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
-    cbar.ax.tick_params(labelsize=7)
+    cbar.ax.tick_params(labelsize=10)
     # Show min/max numeric values plus units label on right
     cbar.set_ticks([vmin, (vmin + vmax) / 2, vmax])
     cbar.set_ticklabels([f"{vmin:.1f}", f"{(vmin + vmax) / 2:.1f}", f"{vmax:.1f}"])
     if units:
         cbar.ax.text(1.04, 0.5, units, transform=cbar.ax.transAxes,
-                     fontsize=7, va="center", ha="left")
+                     fontsize=10, va="center", ha="left")
 
     plt.tight_layout()
     fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
@@ -662,7 +662,7 @@ def composite_figure(protein_id: str, output_dir: str,
         norm = plt.Normalize(vmin=vmin, vmax=vmax)
         sm = plt.cm.ScalarMappable(cmap=info["cmap"], norm=norm)
         cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
-        cbar.ax.tick_params(labelsize=7)
+        cbar.ax.tick_params(labelsize=10)
         cbar.ax.text(-0.02, 0.5, info["vmin_label"], transform=cbar.ax.transAxes,
                      fontsize=6.5, va="center", ha="right", fontstyle="italic")
         cbar.ax.text(1.02, 0.5, info["vmax_label"], transform=cbar.ax.transAxes,

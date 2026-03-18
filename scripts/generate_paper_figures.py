@@ -334,7 +334,8 @@ def generate_fig1(results: dict, output_dir: Path):
         ax_h.set_xlim([-1, 1])
         if row_idx == 0:
             ax_h.legend(frameon=False)
-        _add_panel_label(ax_h, letter)
+        # Panel label added by LaTeX
+        # _add_panel_label(ax_h, letter)
 
         plt.tight_layout()
         for ext in ["pdf", "png"]:
@@ -424,7 +425,7 @@ def _density_scatter_panels(panels, fig, use_raw: bool):
         hb = ax_main.hexbin(x[mask], y[mask], gridsize=40, cmap="Blues",
                              mincnt=1, linewidths=0.2)
         cb = fig.colorbar(hb, ax=ax_right, pad=0.1, shrink=0.8)
-        cb.set_label("Density", fontsize=11)
+        cb.set_label("Count", fontsize=11)
         cb.ax.tick_params(labelsize=10)
         ax_main.set_xlabel(x_label)
         ax_main.set_ylabel(y_label)
@@ -489,7 +490,7 @@ def _single_density_scatter(ds_name, target, use_raw, output_dir, fig_num, lette
     hb = ax_main.hexbin(x[mask], y[mask], gridsize=40, cmap="Blues",
                          mincnt=1, linewidths=0.2)
     cb = fig.colorbar(hb, ax=ax_right, pad=0.1, shrink=0.8)
-    cb.set_label("Density", fontsize=11)
+    cb.set_label("Count", fontsize=11)
     cb.ax.tick_params(labelsize=10)
     ax_main.set_xlabel(x_label)
     ax_main.set_ylabel(y_label)
@@ -508,7 +509,8 @@ def _single_density_scatter(ds_name, target, use_raw, output_dir, fig_num, lette
     ax_top.set_title(f"{ds.display_name} {target_label} "
                      f"($\\rho = {rho:.3f}$)",
                      fontsize=14, fontweight="bold")
-    _add_panel_label(ax_top, letter)
+    # Panel label added by LaTeX
+    # _add_panel_label(ax_top, letter)
 
     for ext in ["pdf", "png"]:
         fname = f"fig{fig_num}{letter}_{suffix}.{ext}"
@@ -634,7 +636,7 @@ def generate_fig3(results: dict, output_dir: Path):
         ax_r2.legend(frameon=False, loc="upper left")
         legend = ax_r2.get_legend()
         if legend:
-            legend.set_bbox_to_anchor((0.05, 0.95))
+            legend.set_bbox_to_anchor((0.0, 1.0))
 
         # ---- Right: 24-feature Ridge coefficients with error bars ----
         ax_coef = axes[row_idx, 1]
@@ -729,8 +731,9 @@ def generate_fig3(results: dict, output_dir: Path):
         ax_l.legend(frameon=False, loc="upper left")
         legend = ax_l.get_legend()
         if legend:
-            legend.set_bbox_to_anchor((0.05, 0.95))
-        _add_panel_label(ax_l, rl)
+            legend.set_bbox_to_anchor((0.0, 1.0))
+        # Panel label added by LaTeX
+        # _add_panel_label(ax_l, rl)
         plt.tight_layout()
         for ext in ["pdf", "png"]:
             fig_l.savefig(output_dir / f"fig3{rl}_{rs}_models.{ext}", dpi=200, bbox_inches="tight")
@@ -767,7 +770,8 @@ def generate_fig3(results: dict, output_dir: Path):
         ax_r.axhline(0, color="gray", linewidth=0.5)
         sep_x = len(AA_ORDER) - 0.5 + 0.5
         ax_r.axvline(sep_x, color="black", linewidth=1.2, linestyle="-", alpha=0.7)
-        _add_panel_label(ax_r, rl2)
+        # Panel label added by LaTeX
+        # _add_panel_label(ax_r, rl2)
         plt.tight_layout()
         for ext in ["pdf", "png"]:
             fig_r.savefig(output_dir / f"fig3{rl2}_{rs}_coefs.{ext}", dpi=200, bbox_inches="tight")
@@ -1039,7 +1043,8 @@ def generate_supp_nmr_fig1(results: dict, output_dir: Path):
         ax_h.set_ylabel("Count")
         ax_h.set_xlim([-1, 1])
         ax_h.legend(frameon=False)
-        _add_panel_label(ax_h, letter)
+        # Panel label added by LaTeX
+        # _add_panel_label(ax_h, letter)
 
         plt.tight_layout()
         for ext in ["pdf", "png"]:
@@ -1124,8 +1129,9 @@ def generate_supp_nmr_fig3(results: dict, output_dir: Path):
         ax_l.set_xticklabels([model_display[m] for m in all_model_names_l], rotation=45, ha="right")
     ax_l.set_ylabel("CV $R^2$")
     ax_l.set_title(f"{title}: model comparison", fontweight="bold")
-    ax_l.legend(frameon=False)
-    _add_panel_label(ax_l, "a")
+    ax_l.legend(frameon=False, loc="upper left")
+    # Panel label added by LaTeX
+    # _add_panel_label(ax_l, "a")
     plt.tight_layout()
     for ext in ["pdf", "png"]:
         fig_l.savefig(output_dir / f"supp_nmr_fig3a_models.{ext}", dpi=200, bbox_inches="tight")
@@ -1161,7 +1167,8 @@ def generate_supp_nmr_fig3(results: dict, output_dir: Path):
     ax_r.axhline(0, color="gray", linewidth=0.5)
     sep_x = len(AA_ORDER) - 0.5 + 0.5
     ax_r.axvline(sep_x, color="black", linewidth=1.2, linestyle="-", alpha=0.7)
-    _add_panel_label(ax_r, "b")
+    # Panel label added by LaTeX
+    # _add_panel_label(ax_r, "b")
     plt.tight_layout()
     for ext in ["pdf", "png"]:
         fig_r.savefig(output_dir / f"supp_nmr_fig3b_coefs.{ext}", dpi=200, bbox_inches="tight")
