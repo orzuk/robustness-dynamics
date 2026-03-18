@@ -981,7 +981,7 @@ def generate_supp_nmr_fig1(results: dict, output_dir: Path):
 
         ds = DATASETS[ds_name]
         target_label = r"$1{-}S^2_\mathrm{RCI}$"
-        panel_label = f"{ds.display_name} {target_label}"
+        panel_label = r"NMR $1{-}S^2_\mathrm{RCI}$"
 
         fig_single, (ax_h, ax_s) = plt.subplots(1, 2, figsize=(10, 4))
 
@@ -1043,8 +1043,9 @@ def generate_supp_nmr_fig1(results: dict, output_dir: Path):
         ax_h.set_ylabel("Count")
         ax_h.set_xlim([-1, 1])
         ax_h.legend(frameon=False)
-        _add_panel_label(ax_h, "a")
-        _add_panel_label(ax_s, "b")
+        # Panel labels added by LaTeX
+        # _add_panel_label(ax_h, "a")
+        # _add_panel_label(ax_s, "b")
 
         plt.tight_layout()
         for ext in ["pdf", "png"]:
