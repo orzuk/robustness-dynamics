@@ -94,12 +94,14 @@ python scripts/compute_robustness.py \\
     --scorer thermompnn \\
     --atlas_dir ${P}/data/relaxdb_processed \\
     --output_dir ${P}/data/relaxdb_robustness \\
+    --batch \\
     --device cuda --skip_existing --thermompnn_dir ${T}
 
 python scripts/compute_robustness.py \\
     --scorer thermompnn \\
     --atlas_dir ${P}/data/s2_exp_processed \\
     --output_dir ${P}/data/s2_exp_robustness \\
+    --batch \\
     --device cuda --skip_existing --thermompnn_dir ${T}
 
 echo "Stage 2 done — \$(date)"
