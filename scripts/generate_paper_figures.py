@@ -143,6 +143,11 @@ def _load_pooled_data(dataset, scorer, bfactor_suffix=None) -> pd.DataFrame:
             bfac_df = pd.read_csv(bfac_path[0], sep="\t")
             bfac_cols = [c for c in bfac_df.columns
                          if "bfactor" in c.lower() or "b_factor" in c.lower()]
+            if not bfac_cols:
+                # Fallback: use last numeric column (for R2, R2/R1, etc.)
+                bfac_cols = [c for c in bfac_df.columns
+                             if bfac_df[c].dtype in (np.float64, np.float32, float)]
+                bfac_cols = bfac_cols[-1:] if bfac_cols else []
             if bfac_cols:
                 targets["bfactor"] = (bfac_df, bfac_df[bfac_cols[0]].values)
 
