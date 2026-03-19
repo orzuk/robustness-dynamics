@@ -53,11 +53,13 @@ echo "Stage 1: Preprocess — \$(date)"
 python scripts/preprocess_relaxdb.py \\
     --relaxdb_csv ${P}/data/NMR_relaxation/relaxdb_data.csv \\
     --output_dir ${P}/data/relaxdb_processed \\
+    --pdb_dir ${P}/data/NMR_relaxation/af2_pdbs \\
     --download_pdbs
 
 python scripts/preprocess_s2_experimental.py \\
     --s2_file ${P}/data/NMR_relaxation/s2_values.txt \\
     --output_dir ${P}/data/s2_exp_processed \\
+    --pdb_dir ${P}/data/NMR_relaxation/af2_pdbs \\
     --download_pdbs
 
 echo "Stage 1 done — \$(date)"
