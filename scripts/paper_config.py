@@ -257,11 +257,20 @@ def generate_all_runs() -> List[AnalysisRun]:
     return runs
 
 
-# All correlation analysis runs
+# All correlation analysis runs (excludes virtual datasets like relaxdb_R2)
 CORRELATION_RUNS = generate_all_runs()
 
 # Multi-DDG regression runs (ThermoMPNN only, as ESM-1v was skipped)
 MULTI_DDG_RUNS = [r for r in CORRELATION_RUNS if r.scorer == "thermompnn"]
+
+# All runs INCLUDING virtual datasets (for collect_results and figure generation)
+ALL_RUNS_WITH_VIRTUAL = CORRELATION_RUNS + [
+    AnalysisRun(dataset=ds.name, scorer=scorer, target=target)
+    for ds in DATASETS.values() if ds.virtual
+    for scorer in ds.available_scorers
+    for target in ds.available_targets
+]
+ALL_MULTI_DDG_WITH_VIRTUAL = [r for r in ALL_RUNS_WITH_VIRTUAL if r.scorer == "thermompnn"]
 
 
 # ============================================================================

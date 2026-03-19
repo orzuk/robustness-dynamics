@@ -18,7 +18,8 @@ from pathlib import Path
 from datetime import datetime
 
 from paper_config import (
-    DATASETS, CORRELATION_RUNS, MULTI_DDG_RUNS, CLUSTER
+    DATASETS, CORRELATION_RUNS, MULTI_DDG_RUNS, CLUSTER,
+    ALL_RUNS_WITH_VIRTUAL, ALL_MULTI_DDG_WITH_VIRTUAL,
 )
 
 
@@ -327,9 +328,9 @@ def collect_all(verbose: bool = False) -> dict:
         "runs": {},
     }
 
-    # Correlation runs
+    # Correlation runs (including virtual datasets like relaxdb_R2)
     print("Collecting correlation results...")
-    for run in CORRELATION_RUNS:
+    for run in ALL_RUNS_WITH_VIRTUAL:
         if verbose:
             print(f"  {run.key}: {run.pooled_json_path}")
         result = collect_correlation_run(run)
@@ -338,9 +339,9 @@ def collect_all(verbose: bool = False) -> dict:
         if verbose:
             print(f"    -> {status}")
 
-    # Multi-DDG runs
+    # Multi-DDG runs (including virtual datasets)
     print("Collecting multi-DDG regression results...")
-    for run in MULTI_DDG_RUNS:
+    for run in ALL_MULTI_DDG_WITH_VIRTUAL:
         key = run.key
         if verbose:
             print(f"  {key}: {run.multi_ddg_json_path}")
