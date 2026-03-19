@@ -150,6 +150,21 @@ python scripts/run_all_analyses.py --only-dataset relaxdb --force
 python scripts/run_all_analyses.py --only-dataset s2_experimental --force
 python scripts/run_all_analyses.py --only-dataset rci_s2 --force
 
+# Alternative NMR targets for RelaxDB (R2 and R2/R1 capture slow exchange)
+echo "Running alternative NMR targets for RelaxDB ..."
+for SUFFIX in _R2.tsv _R2R1.tsv _hetNOE.tsv; do
+    TAG=\$(echo \$SUFFIX | sed 's/_//;s/.tsv//')
+    echo "  Target: \$TAG (suffix: \$SUFFIX)"
+    python scripts/correlate_robustness_dynamics.py \\
+        --atlas_dir ${P}/data/relaxdb_processed \\
+        --robustness_dir ${P}/data/relaxdb_robustness \\
+        --scorer thermompnn \\
+        --output_dir ${P}/data/relaxdb_analysis_\${TAG} \\
+        --target bfactor \\
+        --bfactor_suffix \$SUFFIX \\
+        --no_figures
+done
+
 echo "Stage 3 done — \$(date)"
 EOF
 JOB3=$(sbatch --parsable $DEP3 "$TMPDIR_SLURM/stage3.sh")

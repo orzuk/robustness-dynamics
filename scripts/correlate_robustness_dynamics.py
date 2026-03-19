@@ -118,9 +118,9 @@ def load_atlas_pldt(protein_dir: str) -> Optional[pd.DataFrame]:
     return result
 
 
-def load_atlas_bfactor(protein_dir: str) -> Optional[pd.DataFrame]:
-    """Load B-factor data."""
-    df = load_atlas_tsv(protein_dir, "_Bfactor.tsv")
+def load_atlas_bfactor(protein_dir: str, suffix: str = "_Bfactor.tsv") -> Optional[pd.DataFrame]:
+    """Load B-factor data (or alternative dynamics target with same format)."""
+    df = load_atlas_tsv(protein_dir, suffix)
     if df is None:
         return None
     bfac_cols = [c for c in df.columns if "bfactor" in c.lower() or "b_factor" in c.lower()]
@@ -1688,6 +1688,10 @@ def main():
                         help="Primary dynamics target column (default: rmsf). "
                              "Use 'bfactor' for datasets without MD trajectories "
                              "(e.g. PDB de novo designs with only crystal B-factors).")
+    parser.add_argument("--bfactor_suffix", type=str, default="_Bfactor.tsv",
+                        help="TSV file suffix to load as bfactor target "
+                             "(default: _Bfactor.tsv). Use _R2.tsv, _R2R1.tsv, "
+                             "_hetNOE.tsv etc. for alternative NMR targets.")
     parser.add_argument("--transform", type=str, default="none",
                         choices=["none", "log1p"],
                         help="Optional transform applied to the response variable "
@@ -1724,6 +1728,7 @@ def main():
             transform=args.transform,
             consurf_dir=args.consurf_dir,
             exclude_proteins=exclude_set,
+            bfactor_suffix=args.bfactor_suffix,
         )
 
 
@@ -1742,6 +1747,7 @@ def run_analysis_for_scorer(
     transform: str = "none",
     consurf_dir: Optional[str] = None,
     exclude_proteins: Optional[set] = None,
+    bfactor_suffix: str = "_Bfactor.tsv",
 ):
     """Run the full correlation analysis for one scorer."""
     rob_col = robustness_col  # short alias used throughout
@@ -1809,7 +1815,7 @@ def run_analysis_for_scorer(
 
         # Load pLDDT and B-factor
         plddt_df = load_atlas_pldt(protein_dir)
-        bfactor_df = load_atlas_bfactor(protein_dir)
+        bfactor_df = load_atlas_bfactor(protein_dir, suffix=bfactor_suffix)
 
         # In bfactor_only mode, B-factor is required
         if bfactor_only and bfactor_df is None:

@@ -203,6 +203,22 @@ def process_protein(row, pdb_dir, output_proteins_dir, download_pdbs,
             metric_df.to_csv(prot_dir / f"{protein_id}_{metric_name}.tsv",
                              sep="\t", index=False)
 
+    # Write R2/R1 ratio TSV (reports on μs-ms conformational exchange)
+    if r1_values and r2_values and len(r1_values) == len(r2_values):
+        r2r1_positions = []
+        r2r1_values = []
+        for i, (r1, r2) in enumerate(zip(r1_values, r2_values)):
+            if r1 is not None and r2 is not None and r1 > 0:
+                r2r1_positions.append(i + 1)
+                r2r1_values.append(r2 / r1)
+        if r2r1_values:
+            r2r1_df = pd.DataFrame({
+                "position": r2r1_positions,
+                "bfactor": r2r1_values,  # use "bfactor" column so pipeline reads it
+            })
+            r2r1_df.to_csv(prot_dir / f"{protein_id}_R2R1.tsv",
+                           sep="\t", index=False)
+
     # Create .done sentinel
     (prot_dir / ".done").touch()
 
