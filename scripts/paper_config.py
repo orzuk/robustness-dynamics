@@ -143,6 +143,32 @@ DATASETS = {
         bfactor_only=True,
         has_plddt=True,  # AF2 pLDDT from Gavalda-Garcia dataset
     ),
+    "relaxdb": Dataset(
+        name="relaxdb",
+        display_name="NMR (RelaxDB hetNOE)",
+        data_dir=f"{CLUSTER.project_dir}/data/relaxdb_processed",
+        robustness_dir=f"{CLUSTER.project_dir}/data/relaxdb_robustness",
+        analysis_dir=f"{CLUSTER.project_dir}/data/relaxdb_analysis",
+        dataset_type="natural",
+        available_targets=["bfactor"],  # stores 1 - hetNOE as "bfactor"
+        available_scorers=["esm1v", "thermompnn"],
+        n_proteins_approx=143,
+        bfactor_only=True,
+        has_plddt=True,
+    ),
+    "s2_experimental": Dataset(
+        name="s2_experimental",
+        display_name="NMR (exp. S$^2$)",
+        data_dir=f"{CLUSTER.project_dir}/data/s2_exp_processed",
+        robustness_dir=f"{CLUSTER.project_dir}/data/s2_exp_robustness",
+        analysis_dir=f"{CLUSTER.project_dir}/data/s2_exp_analysis",
+        dataset_type="natural",
+        available_targets=["bfactor"],  # stores 1 - S² as "bfactor"
+        available_scorers=["esm1v", "thermompnn"],
+        n_proteins_approx=42,
+        bfactor_only=True,
+        has_plddt=True,
+    ),
 }
 
 
@@ -211,9 +237,11 @@ TABLE1_COLUMNS = [
     ("pdb_designs", "bfactor"),
 ]
 
-# NMR (RCI-S²) panels — supplementary material
+# NMR panels — supplementary material
 NMR_COLUMNS = [
     ("rci_s2", "bfactor"),
+    ("relaxdb", "bfactor"),
+    ("s2_experimental", "bfactor"),
 ]
 
 # All columns including NMR (for tables that still need it)
