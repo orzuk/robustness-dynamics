@@ -1,8 +1,9 @@
 #!/bin/bash
 # ============================================================================
-# Run the full robustness-dynamics pipeline for the two new NMR datasets:
+# Run the full robustness-dynamics pipeline for all NMR datasets:
 #   1. RelaxDB (143 proteins, per-residue R1/R2/hetNOE)
 #   2. S2 experimental (42 proteins, Lipari-Szabo order parameters)
+#   3. RCI-S2 (762 proteins, chemical-shift-derived S2)
 #
 # Three stages, chained via SLURM dependencies:
 #   Stage 1: Preprocess (CPU) — parse raw data, download AF2 PDBs
@@ -62,6 +63,11 @@ python scripts/preprocess_s2_experimental.py \\
     --pdb_dir ${P}/data/NMR_relaxation/af2_pdbs \\
     --download_pdbs
 
+python scripts/preprocess_rci_dataset.py \\
+    --rci_csv ${P}/data/gradation_nmr/zenodo_submission_v2/rci/rci_final.csv \\
+    --pdb_dir ${P}/data/gradation_nmr/zenodo_submission_v2/rci/pdb_files \\
+    --output_dir ${P}/data/rci_s2_processed
+
 echo "Stage 1 done — \$(date)"
 EOF
     JOB1=$(sbatch --parsable "$TMPDIR_SLURM/stage1.sh")
@@ -106,6 +112,13 @@ python scripts/compute_robustness.py \\
     --batch \\
     --device cuda --skip_existing --thermompnn_dir ${T}
 
+python scripts/compute_robustness.py \\
+    --scorer thermompnn \\
+    --atlas_dir ${P}/data/rci_s2_processed \\
+    --output_dir ${P}/data/rci_s2_robustness \\
+    --batch \\
+    --device cuda --skip_existing --thermompnn_dir ${T}
+
 echo "Stage 2 done — \$(date)"
 EOF
     JOB2=$(sbatch --parsable $DEP "$TMPDIR_SLURM/stage2.sh")
@@ -135,6 +148,7 @@ echo "Stage 3: Correlate + regression — \$(date)"
 
 python scripts/run_all_analyses.py --only-dataset relaxdb --force
 python scripts/run_all_analyses.py --only-dataset s2_experimental --force
+python scripts/run_all_analyses.py --only-dataset rci_s2 --force
 
 echo "Stage 3 done — \$(date)"
 EOF
