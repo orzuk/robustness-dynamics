@@ -75,6 +75,8 @@ class Dataset:
     bfactor_only: bool = False     # pass --target bfactor to correlate script
     has_plddt: bool = True
     exclude_proteins: List[str] = field(default_factory=list)
+    bfactor_suffix: str = "_Bfactor.tsv"  # alternative TSV suffix for NMR targets
+    virtual: bool = False  # if True, skip in generate_all_runs() (used for alt NMR targets)
 
 
 # Natural proteins that passed the keyword-based PDB design filter
@@ -169,6 +171,37 @@ DATASETS = {
         bfactor_only=True,
         has_plddt=True,
     ),
+    # Virtual datasets: same proteins as relaxdb but alternative NMR targets
+    "relaxdb_R2": Dataset(
+        name="relaxdb_R2",
+        display_name="NMR (RelaxDB R$_2$)",
+        data_dir=f"{CLUSTER.project_dir}/data/relaxdb_processed",
+        robustness_dir=f"{CLUSTER.project_dir}/data/relaxdb_robustness",
+        analysis_dir=f"{CLUSTER.project_dir}/data/relaxdb_analysis_R2",
+        dataset_type="natural",
+        available_targets=["bfactor"],
+        available_scorers=["thermompnn"],
+        n_proteins_approx=143,
+        bfactor_only=True,
+        has_plddt=True,
+        bfactor_suffix="_R2.tsv",
+        virtual=True,
+    ),
+    "relaxdb_R2R1": Dataset(
+        name="relaxdb_R2R1",
+        display_name="NMR (RelaxDB R$_2$/R$_1$)",
+        data_dir=f"{CLUSTER.project_dir}/data/relaxdb_processed",
+        robustness_dir=f"{CLUSTER.project_dir}/data/relaxdb_robustness",
+        analysis_dir=f"{CLUSTER.project_dir}/data/relaxdb_analysis_R2R1",
+        dataset_type="natural",
+        available_targets=["bfactor"],
+        available_scorers=["thermompnn"],
+        n_proteins_approx=143,
+        bfactor_only=True,
+        has_plddt=True,
+        bfactor_suffix="_R2R1.tsv",
+        virtual=True,
+    ),
 }
 
 
@@ -209,9 +242,15 @@ class AnalysisRun:
 
 
 def generate_all_runs() -> List[AnalysisRun]:
-    """Generate all valid (dataset, scorer, target) combinations."""
+    """Generate all valid (dataset, scorer, target) combinations.
+
+    Skips virtual datasets (e.g. relaxdb_R2) which share data with their
+    parent but use alternative bfactor suffixes for figure generation only.
+    """
     runs = []
     for ds in DATASETS.values():
+        if ds.virtual:
+            continue
         for scorer in ds.available_scorers:
             for target in ds.available_targets:
                 runs.append(AnalysisRun(dataset=ds.name, scorer=scorer, target=target))
@@ -237,10 +276,12 @@ TABLE1_COLUMNS = [
     ("pdb_designs", "bfactor"),
 ]
 
-# NMR panels — supplementary material
+# NMR panels — supplementary material (5 targets across 3 datasets)
 NMR_COLUMNS = [
     ("rci_s2", "bfactor"),
     ("relaxdb", "bfactor"),
+    ("relaxdb_R2", "bfactor"),
+    ("relaxdb_R2R1", "bfactor"),
     ("s2_experimental", "bfactor"),
 ]
 
@@ -296,6 +337,15 @@ FIG3_PANELS = TABLE1_COLUMNS
 
 # Supplementary NMR panels (same figure types, separate files)
 FIG_NMR_PANELS = NMR_COLUMNS
+
+# Display labels for NMR target axes
+NMR_TARGET_LABELS = {
+    "rci_s2": r"$1 - S^2_\mathrm{RCI}$",
+    "relaxdb": r"$1 - \mathrm{hetNOE}$",
+    "relaxdb_R2": r"R$_2$ (s$^{-1}$)",
+    "relaxdb_R2R1": r"R$_2$/R$_1$",
+    "s2_experimental": r"$1 - S^2$",
+}
 
 # Figure 4: DDG coefficients (3 panels: ATLAS RMSF vs B-fac, ATLAS vs BBFlow, PDB designs)
 FIG4_PANELS = [

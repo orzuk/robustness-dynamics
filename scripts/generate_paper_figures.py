@@ -27,7 +27,7 @@ from scipy import stats as scipy_stats
 from paper_config import (
     DATASETS,
     FIG1_PANELS, FIG2_PANELS, FIG_NMR_PANELS,
-    TABLE1_COLUMNS_ALL,
+    TABLE1_COLUMNS_ALL, NMR_TARGET_LABELS,
     CASE_STUDY_PROTEINS, CASE_STUDY_SCORER,
 )
 
@@ -52,7 +52,12 @@ PANEL_LABELS = {
     ("bbflow", "rmsf"): "b",
     ("atlas", "bfactor"): "c",
     ("pdb_designs", "bfactor"): "d",
-    ("rci_s2", "bfactor"): "a",  # labeled (a) within its own supp figure
+    # NMR panels within their own supplementary figures
+    ("rci_s2", "bfactor"): "a",
+    ("relaxdb", "bfactor"): "b",
+    ("relaxdb_R2", "bfactor"): "c",
+    ("relaxdb_R2R1", "bfactor"): "d",
+    ("s2_experimental", "bfactor"): "e",
 }
 
 PANEL_SUFFIXES = {
@@ -61,6 +66,10 @@ PANEL_SUFFIXES = {
     ("atlas", "bfactor"): "atlas_bfac",
     ("pdb_designs", "bfactor"): "pdb_designs_bfac",
     ("rci_s2", "bfactor"): "nmr_rci_s2",
+    ("relaxdb", "bfactor"): "nmr_relaxdb_hetNOE",
+    ("relaxdb_R2", "bfactor"): "nmr_relaxdb_R2",
+    ("relaxdb_R2R1", "bfactor"): "nmr_relaxdb_R2R1",
+    ("s2_experimental", "bfactor"): "nmr_s2_exp",
 }
 
 
@@ -80,16 +89,23 @@ def _load_per_protein_tsv(dataset, scorer, target) -> pd.DataFrame:
     return pd.read_csv(path, sep="\t")
 
 
-def _load_pooled_data(dataset, scorer) -> pd.DataFrame:
+def _load_pooled_data(dataset, scorer, bfactor_suffix=None) -> pd.DataFrame:
     """Load merged per-residue data for pooled scatter/density plots.
 
     This loads the per-protein data files and concatenates them.
     Each protein's data is z-scored within-protein.
     Returns DataFrame with columns: robustness_z, target_z, protein_id.
+
+    Parameters
+    ----------
+    bfactor_suffix : str, optional
+        Override the bfactor TSV suffix (e.g. "_R2.tsv", "_R2R1.tsv").
+        If None, uses the Dataset's bfactor_suffix field.
     """
     ds = DATASETS[dataset]
     rob_dir = Path(ds.robustness_dir) / scorer
     data_dir = Path(ds.data_dir) / "proteins"
+    suffix = bfactor_suffix or ds.bfactor_suffix
 
     if not data_dir.exists():
         return pd.DataFrame()
@@ -108,34 +124,53 @@ def _load_pooled_data(dataset, scorer) -> pd.DataFrame:
         if "std_ddg" not in rob_df.columns:
             continue
 
-        # Load target
-        rmsf_path = list(protein_dir.glob("*_RMSF.tsv"))
-        bfac_path = list(protein_dir.glob("*_Bfactor.tsv"))
-
+        # Load target — use position-based merge for NMR datasets
         targets = {}
-        if rmsf_path:
-            rmsf_df = pd.read_csv(rmsf_path[0], sep="\t")
-            rmsf_cols = [c for c in rmsf_df.columns
-                         if c.lower().startswith("rmsf") or "r1" in c.lower()]
-            if rmsf_cols:
-                targets["rmsf"] = rmsf_df[rmsf_cols].mean(axis=1).values
+
+        # RMSF target (only for datasets that have it)
+        if suffix == "_Bfactor.tsv":
+            rmsf_path = list(protein_dir.glob("*_RMSF.tsv"))
+            if rmsf_path:
+                rmsf_df = pd.read_csv(rmsf_path[0], sep="\t")
+                rmsf_cols = [c for c in rmsf_df.columns
+                             if c.lower().startswith("rmsf") or "r1" in c.lower()]
+                if rmsf_cols:
+                    targets["rmsf"] = (rmsf_df, rmsf_df[rmsf_cols].mean(axis=1).values)
+
+        # Bfactor / alternative target
+        bfac_path = list(protein_dir.glob(f"*{suffix}"))
         if bfac_path:
             bfac_df = pd.read_csv(bfac_path[0], sep="\t")
             bfac_cols = [c for c in bfac_df.columns
                          if "bfactor" in c.lower() or "b_factor" in c.lower()]
             if bfac_cols:
-                targets["bfactor"] = bfac_df[bfac_cols[0]].values
+                targets["bfactor"] = (bfac_df, bfac_df[bfac_cols[0]].values)
 
         rob = rob_df["std_ddg"].values
-        for tname, tvals in targets.items():
-            n = min(len(rob), len(tvals))
-            if n < 10:
-                continue
-            r, t = rob[:n], tvals[:n]
+        rob_positions = rob_df["position"].values if "position" in rob_df.columns else np.arange(1, len(rob) + 1)
+
+        for tname, (tdf, tvals) in targets.items():
+            # Position-based merge to handle NaN-dropped NMR data
+            if "position" in tdf.columns:
+                tgt_positions = tdf["position"].values
+                # Find common positions
+                common = set(rob_positions) & set(tgt_positions)
+                if len(common) < 10:
+                    continue
+                rob_mask = np.isin(rob_positions, list(common))
+                tgt_mask = np.isin(tgt_positions, list(common))
+                r = rob[rob_mask]
+                t = tvals[tgt_mask]
+            else:
+                n = min(len(rob), len(tvals))
+                if n < 10:
+                    continue
+                r, t = rob[:n], tvals[:n]
+
             # Z-score within protein
             r_z = (r - np.nanmean(r)) / (np.nanstd(r) + 1e-10)
             t_z = (t - np.nanmean(t)) / (np.nanstd(t) + 1e-10)
-            for i in range(n):
+            for i in range(len(r)):
                 if np.isfinite(r_z[i]) and np.isfinite(t_z[i]):
                     rows.append({
                         "robustness_z": r_z[i],
@@ -973,17 +1008,41 @@ def generate_supp_fig2(results: dict, output_dir: Path):
 # SUPPLEMENTARY NMR FIGURES (same types as main, for rci_s2 dataset)
 # ============================================================================
 
+def _get_nmr_target_label(ds_name):
+    """Get display label for an NMR dataset's target variable."""
+    return NMR_TARGET_LABELS.get(ds_name, "NMR target")
+
+
+def _find_rho_col(pp, target):
+    """Find the robustness rho column in a per-protein TSV."""
+    rho_candidates = [
+        f"rho_std_ddg_{target}",
+        "rho_robustness_bfactor_target" if target == "bfactor" else "rho_std_ddg_rmsf",
+    ]
+    rho_col = next((c for c in rho_candidates if c in pp.columns), None)
+    if rho_col is None:
+        for c in pp.columns:
+            if "rho" in c and ("std_ddg" in c or "robustness_bfactor" in c):
+                rho_col = c
+                break
+    return rho_col
+
+
 def generate_supp_nmr_fig1(results: dict, output_dir: Path):
-    """NMR per-protein correlation histogram + scatter (same as fig1 panel)."""
-    for ds_name, target in FIG_NMR_PANELS:
-        letter = PANEL_LABELS.get((ds_name, target), "a")
-        suffix = PANEL_SUFFIXES.get((ds_name, target), "panel")
+    """NMR per-protein correlation histogram + scatter, 5 panels (one per NMR target)."""
+    n_panels = len(FIG_NMR_PANELS)
+    fig, axes = plt.subplots(n_panels, 2, figsize=(14, 4.5 * n_panels))
+    if n_panels == 1:
+        axes = axes[np.newaxis, :]
 
+    for row_idx, (ds_name, target) in enumerate(FIG_NMR_PANELS):
         ds = DATASETS[ds_name]
-        target_label = r"$1{-}S^2_\mathrm{RCI}$"
-        panel_label = r"NMR $1{-}S^2_\mathrm{RCI}$"
+        target_label = _get_nmr_target_label(ds_name)
+        panel_label = f"{ds.display_name}"
+        letter = PANEL_LABELS.get((ds_name, target), chr(ord('a') + row_idx))
 
-        fig_single, (ax_h, ax_s) = plt.subplots(1, 2, figsize=(10, 4))
+        ax_h = axes[row_idx, 0]
+        ax_s = axes[row_idx, 1]
 
         for scorer, color, label in [
             ("thermompnn", "tab:blue", "ThMPNN"),
@@ -994,16 +1053,7 @@ def generate_supp_nmr_fig1(results: dict, output_dir: Path):
             pp = _load_per_protein_tsv(ds_name, scorer, target)
             if pp.empty:
                 continue
-            rho_candidates = [
-                f"rho_std_ddg_{target}",
-                "rho_robustness_bfactor_target" if target == "bfactor" else "rho_std_ddg_rmsf",
-            ]
-            rho_col = next((c for c in rho_candidates if c in pp.columns), None)
-            if rho_col is None:
-                for c in pp.columns:
-                    if "rho" in c and ("std_ddg" in c or "robustness_bfactor" in c):
-                        rho_col = c
-                        break
+            rho_col = _find_rho_col(pp, target)
             if rho_col is None or rho_col not in pp.columns:
                 continue
             vals = pp[rho_col].dropna()
@@ -1018,16 +1068,7 @@ def generate_supp_nmr_fig1(results: dict, output_dir: Path):
                 if plddt_col in pp_th.columns:
                     vals = pp_th[plddt_col].dropna()
                     ax_h.hist(vals, bins=30, alpha=0.5, color="tab:orange", label="pLDDT")
-                    rob_candidates = [
-                        f"rho_std_ddg_{target}",
-                        "rho_robustness_bfactor_target",
-                    ]
-                    rob_col = next((c for c in rob_candidates if c in pp_th.columns), None)
-                    if rob_col is None:
-                        for c in pp_th.columns:
-                            if "rho" in c and ("std_ddg" in c or "robustness_bfactor" in c):
-                                rob_col = c
-                                break
+                    rob_col = _find_rho_col(pp_th, target)
                     if rob_col:
                         both = pp_th[[rob_col, plddt_col]].dropna()
                         ax_s.scatter(both[rob_col], both[plddt_col],
@@ -1038,41 +1079,164 @@ def generate_supp_nmr_fig1(results: dict, output_dir: Path):
                         ax_s.set_xlabel(r"$\rho$(rob, target)")
                         ax_s.set_ylabel(r"$\rho$(pLDDT, target)")
 
-        ax_h.set_title(panel_label, fontweight="bold")
+        ax_h.set_title(f"({letter}) {panel_label}", fontweight="bold")
+        ax_h.set_xlabel(r"Per-protein Spearman $\rho$")
+        ax_h.set_ylabel("Count")
+        ax_h.set_xlim([-1, 1])
+        if row_idx == 0:
+            ax_h.legend(frameon=False)
+
+    plt.tight_layout()
+    for ext in ["pdf", "png"]:
+        fig.savefig(output_dir / f"supp_nmr_fig1_per_protein_correlations.{ext}",
+                    dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    # Also save individual panels
+    for row_idx, (ds_name, target) in enumerate(FIG_NMR_PANELS):
+        ds = DATASETS[ds_name]
+        target_label = _get_nmr_target_label(ds_name)
+        letter = PANEL_LABELS.get((ds_name, target), chr(ord('a') + row_idx))
+        suffix = PANEL_SUFFIXES.get((ds_name, target), f"panel_{letter}")
+
+        fig_single, (ax_h, ax_s) = plt.subplots(1, 2, figsize=(10, 4))
+
+        for scorer, color, label in [
+            ("thermompnn", "tab:blue", "ThMPNN"),
+            ("esm1v", "tab:green", "ESM-1v"),
+        ]:
+            if scorer not in ds.available_scorers:
+                continue
+            pp = _load_per_protein_tsv(ds_name, scorer, target)
+            if pp.empty:
+                continue
+            rho_col = _find_rho_col(pp, target)
+            if rho_col is None or rho_col not in pp.columns:
+                continue
+            vals = pp[rho_col].dropna()
+            ax_h.hist(vals, bins=30, alpha=0.5, color=color, label=label)
+
+        if ds.has_plddt:
+            pp_th = _load_per_protein_tsv(ds_name, "thermompnn", target)
+            if not pp_th.empty:
+                plddt_col = f"rho_plddt_{target}"
+                if plddt_col not in pp_th.columns:
+                    plddt_col = "rho_plddt_bfactor"
+                if plddt_col in pp_th.columns:
+                    vals = pp_th[plddt_col].dropna()
+                    ax_h.hist(vals, bins=30, alpha=0.5, color="tab:orange", label="pLDDT")
+                    rob_col = _find_rho_col(pp_th, target)
+                    if rob_col:
+                        both = pp_th[[rob_col, plddt_col]].dropna()
+                        ax_s.scatter(both[rob_col], both[plddt_col],
+                                     alpha=0.3, s=10, c="tab:blue")
+                        lim = [-1, 1]
+                        ax_s.plot(lim, lim, "k--", alpha=0.5)
+                        ax_s.set_xlim(lim); ax_s.set_ylim(lim)
+                        ax_s.set_xlabel(r"$\rho$(rob, target)")
+                        ax_s.set_ylabel(r"$\rho$(pLDDT, target)")
+
+        ax_h.set_title(f"{ds.display_name}", fontweight="bold")
         ax_h.set_xlabel(r"Per-protein Spearman $\rho$")
         ax_h.set_ylabel("Count")
         ax_h.set_xlim([-1, 1])
         ax_h.legend(frameon=False)
-        # Panel labels added by LaTeX
-        # _add_panel_label(ax_h, "a")
-        # _add_panel_label(ax_s, "b")
 
         plt.tight_layout()
         for ext in ["pdf", "png"]:
             fig_single.savefig(output_dir / f"supp_nmr_fig1{letter}_{suffix}.{ext}",
                                dpi=200, bbox_inches="tight")
         plt.close(fig_single)
-    print("  Generated supp_nmr_fig1 (NMR per-protein correlations)")
+    print("  Generated supp_nmr_fig1 (NMR per-protein correlations, 5 panels)")
+
+
+def _nmr_density_scatter(ds_name, target, use_raw, output_dir, fig_num, letter, suffix):
+    """Generate a single NMR density scatter panel, using position-aware loading."""
+    ds = DATASETS[ds_name]
+    target_label = _get_nmr_target_label(ds_name)
+
+    pooled = _load_pooled_data(ds_name, "thermompnn")
+    if pooled.empty:
+        return
+    target_data = pooled[pooled["target_type"] == "bfactor"]
+    if target_data.empty:
+        return
+    n_max = 50000
+    if len(target_data) > n_max:
+        target_data = target_data.sample(n_max, random_state=42)
+
+    if use_raw:
+        x = target_data["robustness_raw"].values
+        y = target_data["target_raw"].values
+        x_label = r"$\operatorname{std}(\Delta\Delta G)$ (kcal/mol)"
+        y_label = target_label
+    else:
+        x = target_data["robustness_z"].values
+        y = target_data["target_z"].values
+        x_label = r"$\operatorname{std}(\Delta\Delta G)$ (z-scored)"
+        y_label = f"{target_label} (z-scored)"
+
+    y_clip = np.percentile(y, 99)
+    y_floor = np.percentile(y, 1)
+    mask = (y >= y_floor) & (y <= y_clip)
+
+    fig = plt.figure(figsize=(7, 6))
+    gs = GridSpec(4, 4, figure=fig, hspace=0.05, wspace=0.05)
+    ax_main = fig.add_subplot(gs[1:, :-1])
+    ax_top = fig.add_subplot(gs[0, :-1], sharex=ax_main)
+    ax_right = fig.add_subplot(gs[1:, -1], sharey=ax_main)
+
+    hb = ax_main.hexbin(x[mask], y[mask], gridsize=40, cmap="Blues",
+                         mincnt=1, linewidths=0.2)
+    cb = fig.colorbar(hb, ax=ax_right, pad=0.1, shrink=0.8)
+    cb.set_label("Count", fontsize=11)
+    cb.ax.tick_params(labelsize=10)
+    ax_main.set_xlabel(x_label)
+    ax_main.set_ylabel(y_label)
+    ax_main.set_ylim(y_floor, y_clip)
+
+    ax_top.hist(x, bins=50, color="tab:blue", alpha=0.7, density=True)
+    ax_top.set_ylabel("Density")
+    plt.setp(ax_top.get_xticklabels(), visible=False)
+
+    ax_right.hist(y[mask], bins=50, orientation="horizontal",
+                   color="tab:orange", alpha=0.7, density=True)
+    ax_right.set_xlabel("Density")
+    plt.setp(ax_right.get_yticklabels(), visible=False)
+
+    rho = scipy_stats.spearmanr(x, y)[0]
+    ax_top.set_title(f"({letter}) {ds.display_name} "
+                     f"($\\rho = {rho:.3f}$)",
+                     fontsize=14, fontweight="bold")
+
+    for ext in ["pdf", "png"]:
+        fname = f"fig{fig_num}{letter}_{suffix}.{ext}"
+        fig.savefig(output_dir / fname, dpi=200, bbox_inches="tight")
+    plt.close(fig)
 
 
 def generate_supp_nmr_fig2(results: dict, output_dir: Path):
-    """NMR 2D density scatter (same as fig2 panel)."""
+    """NMR 2D density scatter, 5 panels (one per NMR target)."""
     for ds_name, target in FIG_NMR_PANELS:
         letter = PANEL_LABELS.get((ds_name, target), "a")
         suffix = PANEL_SUFFIXES.get((ds_name, target), "panel")
         # Z-scored
-        _single_density_scatter(ds_name, target, use_raw=False,
-                                output_dir=output_dir, fig_num="s_nmr2",
-                                letter=letter, suffix=suffix)
+        _nmr_density_scatter(ds_name, target, use_raw=False,
+                             output_dir=output_dir, fig_num="s_nmr2",
+                             letter=letter, suffix=suffix)
         # Raw
-        _single_density_scatter(ds_name, target, use_raw=True,
-                                output_dir=output_dir, fig_num="s_nmr2_raw",
-                                letter=letter, suffix=suffix)
-    print("  Generated supp_nmr_fig2 (NMR density scatter)")
+        _nmr_density_scatter(ds_name, target, use_raw=True,
+                             output_dir=output_dir, fig_num="s_nmr2_raw",
+                             letter=letter, suffix=suffix)
+    print("  Generated supp_nmr_fig2 (NMR density scatter, 5 panels)")
 
 
 def generate_supp_nmr_fig3(results: dict, output_dir: Path):
-    """NMR model comparison + Ridge coefficients (same as fig3 row)."""
+    """NMR model comparison: all 5 NMR targets as grouped bars in one figure.
+
+    Left panel: CV R² for each model, with 5 grouped bars (one per NMR target).
+    Right panel: Ridge coefficients for the best model, 5 series overlaid.
+    """
     model_display = {
         "ols_std_ddg": r"std($\Delta\Delta G$)",
         "ols_mean_abs_ddg": r"mean|$\Delta\Delta G$|",
@@ -1097,12 +1261,27 @@ def generate_supp_nmr_fig3(results: dict, output_dir: Path):
     ALL_LABELS = AA_ORDER + NONLINEAR_LABELS
     COEF_MODEL = "ridge_20ddg_nonlinear"
 
-    title = r"NMR ($1 - S^2_\mathrm{RCI}$)"
     target = "bfactor"
-    dataset_list = [("rci_s2", "tab:purple", r"$S^2_\mathrm{RCI}$")]
+    # All 5 NMR datasets with distinct colors
+    nmr_colors = {
+        "rci_s2": "tab:purple",
+        "relaxdb": "tab:blue",
+        "relaxdb_R2": "tab:green",
+        "relaxdb_R2R1": "tab:red",
+        "s2_experimental": "tab:orange",
+    }
+    nmr_short_labels = {
+        "rci_s2": r"$S^2_\mathrm{RCI}$",
+        "relaxdb": "hetNOE",
+        "relaxdb_R2": r"R$_2$",
+        "relaxdb_R2R1": r"R$_2$/R$_1$",
+        "s2_experimental": r"exp. S$^2$",
+    }
+    dataset_list = [(ds_name, nmr_colors[ds_name], nmr_short_labels[ds_name])
+                    for ds_name, _ in FIG_NMR_PANELS]
 
-    # --- Left panel: model comparison ---
-    fig_l, ax_l = plt.subplots(figsize=(7, 5))
+    # --- Left panel: model comparison (5 grouped bars) ---
+    fig_l, ax_l = plt.subplots(figsize=(10, 6))
     all_model_names_l = []
     for mname in model_display:
         for ds_name, _, _ in dataset_list:
@@ -1129,17 +1308,15 @@ def generate_supp_nmr_fig3(results: dict, output_dir: Path):
         ax_l.set_xticks(xp)
         ax_l.set_xticklabels([model_display[m] for m in all_model_names_l], rotation=45, ha="right")
     ax_l.set_ylabel("CV $R^2$")
-    ax_l.set_title(f"{title}: model comparison", fontweight="bold")
-    ax_l.legend(frameon=False, loc="upper left")
-    # Panel label added by LaTeX
-    # _add_panel_label(ax_l, "a")
+    ax_l.set_title("NMR targets: model comparison", fontweight="bold")
+    ax_l.legend(frameon=False, loc="upper left", fontsize=11)
     plt.tight_layout()
     for ext in ["pdf", "png"]:
         fig_l.savefig(output_dir / f"supp_nmr_fig3a_models.{ext}", dpi=200, bbox_inches="tight")
     plt.close(fig_l)
 
-    # --- Right panel: coefficients ---
-    fig_r, ax_r = plt.subplots(figsize=(11, 5))
+    # --- Right panel: Ridge coefficients (5 overlaid series) ---
+    fig_r, ax_r = plt.subplots(figsize=(14, 6))
     n_s = len(dataset_list)
     w = 0.8 / n_s
     x_c = np.arange(len(ALL_FEATURES), dtype=float)
@@ -1164,18 +1341,17 @@ def generate_supp_nmr_fig3(results: dict, output_dir: Path):
     ax_r.set_xticks(x_c)
     ax_r.set_xticklabels(ALL_LABELS, rotation=45, ha="right")
     ax_r.set_ylabel("Ridge coefficient")
-    ax_r.set_title(f"{title}: Ridge coefficients (20 AA + 4 NL)", fontweight="bold")
+    ax_r.set_title("NMR targets: Ridge coefficients (20 AA + 4 NL)", fontweight="bold")
     ax_r.axhline(0, color="gray", linewidth=0.5)
     sep_x = len(AA_ORDER) - 0.5 + 0.5
     ax_r.axvline(sep_x, color="black", linewidth=1.2, linestyle="-", alpha=0.7)
-    # Panel label added by LaTeX
-    # _add_panel_label(ax_r, "b")
+    ax_r.legend(frameon=False, loc="upper left", fontsize=11)
     plt.tight_layout()
     for ext in ["pdf", "png"]:
         fig_r.savefig(output_dir / f"supp_nmr_fig3b_coefs.{ext}", dpi=200, bbox_inches="tight")
     plt.close(fig_r)
 
-    print("  Generated supp_nmr_fig3 (NMR model comparison + coefficients)")
+    print("  Generated supp_nmr_fig3 (NMR model comparison + coefficients, 5 targets)")
 
 
 # ============================================================================
@@ -1237,11 +1413,11 @@ FIGURE_GENERATORS = {
     "supp_fig1": ("Supp Fig 1 (raw scatter)", generate_supp_fig1),
     "supp_fig2": ("Supp Fig 2 (robustness vs pLDDT characterization)",
                   generate_supp_fig2),
-    "supp_nmr_fig1": ("Supp NMR Fig 1 (per-protein correlations)",
+    "supp_nmr_fig1": ("Supp NMR Fig 1 (per-protein correlations, 5 panels)",
                       generate_supp_nmr_fig1),
-    "supp_nmr_fig2": ("Supp NMR Fig 2 (density scatter)",
+    "supp_nmr_fig2": ("Supp NMR Fig 2 (density scatter, 5 panels)",
                       generate_supp_nmr_fig2),
-    "supp_nmr_fig3": ("Supp NMR Fig 3 (model comparison + coefficients)",
+    "supp_nmr_fig3": ("Supp NMR Fig 3 (model comparison, 5 targets)",
                       generate_supp_nmr_fig3),
 }
 
