@@ -83,7 +83,11 @@ def load_atlas_rmsf(protein_dir: str) -> Optional[pd.DataFrame]:
         return None
 
     result = pd.DataFrame()
-    result["position"] = range(1, len(df) + 1)
+    # Use position column from file if available (important for NMR data with gaps)
+    if "position" in df.columns:
+        result["position"] = df["position"].values
+    else:
+        result["position"] = range(1, len(df) + 1)
     result["rmsf_avg"] = df[rmsf_cols].mean(axis=1).values
     # Also keep individual replicates if available
     for i, col in enumerate(rmsf_cols):
@@ -106,7 +110,10 @@ def load_atlas_pldt(protein_dir: str) -> Optional[pd.DataFrame]:
         return None
 
     result = pd.DataFrame()
-    result["position"] = range(1, len(df) + 1)
+    if "position" in df.columns:
+        result["position"] = df["position"].values
+    else:
+        result["position"] = range(1, len(df) + 1)
     result["plddt"] = df[plddt_cols[0]].values
     return result
 
@@ -123,7 +130,10 @@ def load_atlas_bfactor(protein_dir: str) -> Optional[pd.DataFrame]:
     if not bfac_cols:
         return None
     result = pd.DataFrame()
-    result["position"] = range(1, len(df) + 1)
+    if "position" in df.columns:
+        result["position"] = df["position"].values
+    else:
+        result["position"] = range(1, len(df) + 1)
     result["bfactor"] = df[bfac_cols[0]].values
     return result
 
@@ -268,7 +278,10 @@ def load_conservation(protein_dir: str, consurf_dir: Optional[str] = None,
         return None
 
     result = pd.DataFrame()
-    result["position"] = range(1, len(df) + 1)
+    if "position" in df.columns:
+        result["position"] = df["position"].values
+    else:
+        result["position"] = range(1, len(df) + 1)
     result["conservation"] = pd.to_numeric(df[score_cols[0]], errors="coerce").values
     return result
 

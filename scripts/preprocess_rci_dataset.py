@@ -105,16 +105,17 @@ def main():
 
         # Write Bfactor TSV: use (1 - rciS2) so high = flexible
         # This matches the sign convention of RMSF and B-factor
+        # Use seqIndex as position to match AF2 PDB residue numbering
         bfactor_df = pd.DataFrame({
-            "position": range(1, len(protein_df) + 1),
+            "position": protein_df["seqIndex"].values,
             "bfactor": 1.0 - protein_df["rciS2"].values,
         })
         bfactor_df.to_csv(prot_dir / f"{uniprot_id}_Bfactor.tsv",
                           sep="\t", index=False)
 
-        # Write pLDDT TSV
+        # Write pLDDT TSV (same residues as Bfactor since both come from same filtered set)
         plddt_df = pd.DataFrame({
-            "position": range(1, len(protein_df) + 1),
+            "position": protein_df["seqIndex"].values,
             "plddt": protein_df["plddt"].values,
         })
         plddt_df.to_csv(prot_dir / f"{uniprot_id}_pLDDT.tsv",

@@ -64,7 +64,10 @@ def load_rmsf(protein_dir: Path) -> Optional[pd.DataFrame]:
         numeric = [c for c in df.columns if df[c].dtype in (np.float64, np.float32)]
         rmsf_cols = numeric
     result = pd.DataFrame()
-    result["position"] = range(1, len(df) + 1)
+    if "position" in df.columns:
+        result["position"] = df["position"].values
+    else:
+        result["position"] = range(1, len(df) + 1)
     result["rmsf"] = df[rmsf_cols].mean(axis=1).values
     return result
 
@@ -79,7 +82,10 @@ def load_plddt(protein_dir: Path) -> Optional[pd.DataFrame]:
         numeric = [c for c in df.columns if df[c].dtype in (np.float64, np.float32)]
         plddt_cols = numeric[:1]
     result = pd.DataFrame()
-    result["position"] = range(1, len(df) + 1)
+    if "position" in df.columns:
+        result["position"] = df["position"].values
+    else:
+        result["position"] = range(1, len(df) + 1)
     result["plddt"] = df[plddt_cols[0]].values
     return result
 
@@ -94,7 +100,10 @@ def load_bfactor(protein_dir: Path) -> Optional[pd.DataFrame]:
         numeric = [c for c in df.columns if df[c].dtype in (np.float64, np.float32)]
         bfac_cols = numeric[:1]
     result = pd.DataFrame()
-    result["position"] = range(1, len(df) + 1)
+    if "position" in df.columns:
+        result["position"] = df["position"].values
+    else:
+        result["position"] = range(1, len(df) + 1)
     result["bfactor"] = df[bfac_cols[0]].values
     return result
 
