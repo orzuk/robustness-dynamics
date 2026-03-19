@@ -91,12 +91,17 @@ def load_ddg_matrix_20col(robustness_dir: str, scorer: str,
 
 
 def load_atlas_column(protein_dir: str, suffix: str,
-                      col_name: str) -> Optional[np.ndarray]:
-    """Load a single column from an ATLAS TSV file."""
+                      col_name: str,
+                      return_positions: bool = False):
+    """Load a single column from an ATLAS TSV file.
+
+    If return_positions=True, returns (values, positions) tuple.
+    positions is None if no position column exists in the TSV.
+    """
     protein_dir = Path(protein_dir)
     matches = list(protein_dir.glob(f"*{suffix}"))
     if not matches:
-        return None
+        return (None, None) if return_positions else None
     df = pd.read_csv(matches[0], sep="\t")
     # Find the right column
     candidates = [c for c in df.columns if col_name.lower() in c.lower()]
@@ -105,8 +110,12 @@ def load_atlas_column(protein_dir: str, suffix: str,
                    if df[c].dtype in (np.float64, np.float32, float)]
         candidates = numeric[-1:] if numeric else []
     if not candidates:
-        return None
-    return df[candidates[0]].values
+        return (None, None) if return_positions else None
+    vals = df[candidates[0]].values
+    if return_positions:
+        positions = df["position"].values if "position" in df.columns else None
+        return vals, positions
+    return vals
 
 
 def load_rmsf(protein_dir: str) -> Optional[np.ndarray]:
@@ -247,11 +256,13 @@ def build_dataset(
             skipped["too_long"] += 1
             continue
 
-        # Load target
+        # Load target (with positions for NMR datasets that have NaN-dropped rows)
+        target_positions = None
         if target == "rmsf":
             y = load_rmsf(protein_dir)
         elif target == "bfactor":
-            y = load_atlas_column(protein_dir, "_Bfactor.tsv", "bfactor")
+            y, target_positions = load_atlas_column(
+                protein_dir, "_Bfactor.tsv", "bfactor", return_positions=True)
         else:
             raise ValueError(f"Unknown target: {target}")
 
@@ -259,13 +270,39 @@ def build_dataset(
             skipped["no_target"] += 1
             continue
 
-        if len(y) != L:
+        # Position-based alignment: if target has positions, use them to
+        # select matching rows from the full-length DDG matrix (1..L)
+        if target_positions is not None and len(y) != L:
+            # Convert 1-based positions to 0-based indices into the DDG matrix
+            idx = target_positions.astype(int) - 1
+            # Keep only positions within range
+            valid_idx = (idx >= 0) & (idx < L)
+            if valid_idx.sum() < 10:
+                skipped["length_mismatch"] += 1
+                continue
+            idx = idx[valid_idx]
+            y = y[valid_idx]
+            ddg_20 = ddg_20[idx]
+            seq = "".join(seq[i] for i in idx) if isinstance(seq, str) else seq[idx]
+            L = len(y)
+        elif len(y) != L:
             skipped["length_mismatch"] += 1
             continue
 
-        # Load baselines
-        plddt = load_atlas_column(protein_dir, "_pLDDT.tsv", "plddt")
-        if plddt is not None and len(plddt) != L:
+        # Load baselines — use same position subset if we did alignment
+        plddt_raw = load_atlas_column(protein_dir, "_pLDDT.tsv", "plddt",
+                                      return_positions=True)
+        if plddt_raw[0] is not None:
+            plddt_vals, plddt_pos = plddt_raw
+            if target_positions is not None and plddt_pos is not None:
+                # Intersect with target positions
+                common = np.isin(plddt_pos, target_positions)
+                plddt = plddt_vals[common] if common.sum() == L else None
+            elif len(plddt_vals) == L:
+                plddt = plddt_vals
+            else:
+                plddt = None
+        else:
             plddt = None
 
         pdb_files = list(Path(protein_dir).glob("*.pdb"))
@@ -282,12 +319,25 @@ def build_dataset(
         std_ddg = None
         if rob_tsv.exists():
             rob_df = pd.read_csv(rob_tsv, sep="\t")
-            if "mean_abs_ddg" in rob_df.columns and len(rob_df) == L:
-                mean_abs_ddg = rob_df["mean_abs_ddg"].values
-            if "mean_ddg" in rob_df.columns and len(rob_df) == L:
-                mean_ddg = rob_df["mean_ddg"].values
-            if "std_ddg" in rob_df.columns and len(rob_df) == L:
-                std_ddg = rob_df["std_ddg"].values
+            n_rob = len(rob_df)
+            if target_positions is not None and n_rob != L:
+                # Align robustness TSV to target positions
+                rob_pos = rob_df["position"].values if "position" in rob_df.columns else np.arange(1, n_rob + 1)
+                rob_idx = np.isin(rob_pos, target_positions)
+                if rob_idx.sum() == L:
+                    if "mean_abs_ddg" in rob_df.columns:
+                        mean_abs_ddg = rob_df["mean_abs_ddg"].values[rob_idx]
+                    if "mean_ddg" in rob_df.columns:
+                        mean_ddg = rob_df["mean_ddg"].values[rob_idx]
+                    if "std_ddg" in rob_df.columns:
+                        std_ddg = rob_df["std_ddg"].values[rob_idx]
+            else:
+                if "mean_abs_ddg" in rob_df.columns and n_rob == L:
+                    mean_abs_ddg = rob_df["mean_abs_ddg"].values
+                if "mean_ddg" in rob_df.columns and n_rob == L:
+                    mean_ddg = rob_df["mean_ddg"].values
+                if "std_ddg" in rob_df.columns and n_rob == L:
+                    std_ddg = rob_df["std_ddg"].values
 
         # Filter valid rows (no NaN in DDG or target)
         valid = ~(np.isnan(ddg_20).any(axis=1) | np.isnan(y))
