@@ -31,7 +31,7 @@ submit() {
            --error="${LOGDIR}/${NAME}_%j.err" \
            --time="$TIME" --mem="$MEM" --cpus-per-task=4 \
            --partition=glacier \
-           --wrap="source ${VENV}/bin/activate && cd ${REPO} && ${CMD}"
+           --wrap=". ${VENV}/bin/activate && cd ${REPO} && ${CMD}"
     echo "  Submitted: $NAME"
 }
 
