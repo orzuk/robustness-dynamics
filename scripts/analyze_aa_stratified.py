@@ -451,7 +451,7 @@ def main():
     parser.add_argument("--robustness-dir", required=True,
                         help="Robustness output directory")
     parser.add_argument("--scorer", default="thermompnn",
-                        choices=["thermompnn", "esm1v"])
+                        choices=["thermompnn", "esm1v", "proteinmpnn"])
     parser.add_argument("--target", default="rmsf",
                         choices=["rmsf", "bfactor"],
                         help="Dynamics target to analyze")
