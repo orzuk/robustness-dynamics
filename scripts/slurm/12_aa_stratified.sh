@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=aa_stratified
-#SBATCH --time=01:00:00
+#SBATCH --time=02:00:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
 #
@@ -27,49 +27,53 @@ echo "AA-stratified analysis"
 echo "Date: $(date)"
 echo "============================================"
 
+for SCORER in thermompnn proteinmpnn; do
+
 # --- ATLAS + RMSF ---
 echo ""
-echo "=== ATLAS RMSF ==="
+echo "=== ATLAS RMSF (${SCORER}) ==="
 python "$SCRIPT" \
     --data-dir "${ATLAS_DIR}" \
     --robustness-dir "${ROBUSTNESS_DIR}" \
-    --scorer thermompnn \
+    --scorer ${SCORER} \
     --target rmsf \
-    --output-dir "${ANALYSIS_DIR}/aa_stratified_rmsf" \
-    --dataset-name "ATLAS_RMSF"
+    --output-dir "${ANALYSIS_DIR}/aa_stratified_rmsf_${SCORER}" \
+    --dataset-name "ATLAS_RMSF_${SCORER}"
 
 # --- ATLAS + B-factor ---
 echo ""
-echo "=== ATLAS B-factor ==="
+echo "=== ATLAS B-factor (${SCORER}) ==="
 python "$SCRIPT" \
     --data-dir "${ATLAS_DIR}" \
     --robustness-dir "${ROBUSTNESS_DIR}" \
-    --scorer thermompnn \
+    --scorer ${SCORER} \
     --target bfactor \
-    --output-dir "${ANALYSIS_DIR}/aa_stratified_bfactor" \
-    --dataset-name "ATLAS_Bfactor"
+    --output-dir "${ANALYSIS_DIR}/aa_stratified_bfactor_${SCORER}" \
+    --dataset-name "ATLAS_Bfactor_${SCORER}"
 
 # --- BBFlow + RMSF ---
 echo ""
-echo "=== BBFlow RMSF ==="
+echo "=== BBFlow RMSF (${SCORER}) ==="
 python "$SCRIPT" \
     --data-dir "${BBFLOW_PROCESSED}" \
     --robustness-dir "${BBFLOW_ROBUSTNESS}" \
-    --scorer thermompnn \
+    --scorer ${SCORER} \
     --target rmsf \
-    --output-dir "${BBFLOW_ANALYSIS}/aa_stratified_rmsf" \
-    --dataset-name "BBFlow_RMSF"
+    --output-dir "${BBFLOW_ANALYSIS}/aa_stratified_rmsf_${SCORER}" \
+    --dataset-name "BBFlow_RMSF_${SCORER}"
 
 # --- PDB designs + B-factor ---
 echo ""
-echo "=== PDB designs B-factor ==="
+echo "=== PDB designs B-factor (${SCORER}) ==="
 python "$SCRIPT" \
     --data-dir "${PDB_DESIGNS_DIR}" \
     --robustness-dir "${PDB_DESIGNS_ROBUSTNESS}" \
-    --scorer thermompnn \
+    --scorer ${SCORER} \
     --target bfactor \
-    --output-dir "${PDB_DESIGNS_ANALYSIS}/aa_stratified_bfactor" \
-    --dataset-name "PDB_designs_Bfactor"
+    --output-dir "${PDB_DESIGNS_ANALYSIS}/aa_stratified_bfactor_${SCORER}" \
+    --dataset-name "PDB_designs_Bfactor_${SCORER}"
+
+done
 
 echo ""
 echo "All AA-stratified analyses done at $(date)"

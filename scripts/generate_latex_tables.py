@@ -193,8 +193,9 @@ def generate_table1(results: dict) -> str:
     lines.append(r"\multicolumn{" + str(n_cols + 1) + r"}{l}{\textit{Median per-protein Spearman $\rho$ (predictor, target)}} \\")
 
     # Predictors: ESM-1v, ThermoMPNN, pLDDT, SASA, Conservation
-    pred_list = ["esm1v", "thermompnn", "plddt", "sasa", "conservation"]
+    pred_list = ["esm1v", "thermompnn", "proteinmpnn", "plddt", "sasa", "conservation"]
     pred_labels = {"esm1v": "ESM-1v", "thermompnn": "ThermoMPNN",
+                   "proteinmpnn": "ProteinMPNN",
                    "plddt": "pLDDT", "sasa": "SASA",
                    "conservation": "Conservation"}
     med_rho_grid = []
@@ -266,7 +267,7 @@ def generate_table1(results: dict) -> str:
 
     # --- Pooled R² (highlight best per column) ---
     lines.append(r"\multicolumn{" + str(n_cols + 1) + r"}{l}{\textit{Pooled $R^2$ (OLS on z-scored residues)}} \\")
-    r2_preds = ["esm1v", "thermompnn", "plddt"]
+    r2_preds = ["esm1v", "thermompnn", "proteinmpnn", "plddt"]
     r2_grid = []
     for pred in r2_preds:
         row_cells = []
@@ -288,7 +289,8 @@ def generate_table1(results: dict) -> str:
             r2_grid[p][col_idx] = (highlighted[p], r2_grid[p][col_idx][1])
 
     for pred_idx, pred in enumerate(r2_preds):
-        label = {"esm1v": "ESM-1v", "thermompnn": "ThermoMPNN", "plddt": "pLDDT"}[pred]
+        label = {"esm1v": "ESM-1v", "thermompnn": "ThermoMPNN",
+                 "proteinmpnn": "ProteinMPNN", "plddt": "pLDDT"}[pred]
         row = [r"\quad " + label]
         for col_idx in range(n_cols):
             row.append(r2_grid[pred_idx][col_idx][0])

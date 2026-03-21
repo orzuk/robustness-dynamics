@@ -70,7 +70,7 @@ class Dataset:
     analysis_dir: str       # where correlation/regression outputs go
     dataset_type: str       # "natural" or "designed"
     available_targets: List[str]   # ["rmsf"], ["bfactor"], or ["rmsf", "bfactor"]
-    available_scorers: List[str] = field(default_factory=lambda: ["esm1v", "thermompnn"])
+    available_scorers: List[str] = field(default_factory=lambda: ["esm1v", "thermompnn", "proteinmpnn"])
     n_proteins_approx: int = 0
     bfactor_only: bool = False     # pass --target bfactor to correlate script
     has_plddt: bool = True
@@ -352,13 +352,17 @@ NMR_COLUMNS = [
     ("relaxdb_R2", "bfactor"),
     ("relaxdb_R2R1", "bfactor"),
     ("s2_experimental", "bfactor"),
+    ("nmr_app_hetNOE", "bfactor"),
+    ("nmr_app_R1", "bfactor"),
+    ("nmr_app_R2", "bfactor"),
+    ("nmr_app_R2R1", "bfactor"),
 ]
 
 # All columns including NMR (for tables that still need it)
 TABLE1_COLUMNS_ALL = TABLE1_COLUMNS + NMR_COLUMNS
 
 # Table 1 predictor rows
-TABLE1_PREDICTORS = ["esm1v", "thermompnn", "plddt", "sasa"]
+TABLE1_PREDICTORS = ["esm1v", "thermompnn", "proteinmpnn", "plddt", "sasa"]
 
 # Table 2 strata
 TABLE2_SS_STRATA = ["H", "E", "C"]
@@ -414,6 +418,10 @@ NMR_TARGET_LABELS = {
     "relaxdb_R2": r"R$_2$ (s$^{-1}$)",
     "relaxdb_R2R1": r"R$_2$/R$_1$",
     "s2_experimental": r"$1 - S^2$",
+    "nmr_app_hetNOE": r"$1 - \mathrm{hetNOE}$ (designed)",
+    "nmr_app_R1": r"R$_1$ (designed)",
+    "nmr_app_R2": r"R$_2$ (designed)",
+    "nmr_app_R2R1": r"R$_2$/R$_1$ (designed)",
 }
 
 # Figure 4: DDG coefficients (3 panels: ATLAS RMSF vs B-fac, ATLAS vs BBFlow, PDB designs)

@@ -218,6 +218,7 @@ def generate_fig1(results: dict, output_dir: Path):
         for scorer, color, label in [
             ("thermompnn", "tab:blue", "ThMPNN"),
             ("esm1v", "tab:green", "ESM-1v"),
+            ("proteinmpnn", "tab:orange", "PMPNN"),
         ]:
             if scorer not in ds.available_scorers:
                 continue
@@ -317,6 +318,7 @@ def generate_fig1(results: dict, output_dir: Path):
         for scorer, color, label in [
             ("thermompnn", "tab:blue", "ThMPNN"),
             ("esm1v", "tab:green", "ESM-1v"),
+            ("proteinmpnn", "tab:orange", "PMPNN"),
         ]:
             if scorer not in ds.available_scorers:
                 continue
@@ -1052,6 +1054,7 @@ def generate_supp_nmr_fig1(results: dict, output_dir: Path):
         for scorer, color, label in [
             ("thermompnn", "tab:blue", "ThMPNN"),
             ("esm1v", "tab:green", "ESM-1v"),
+            ("proteinmpnn", "tab:orange", "PMPNN"),
         ]:
             if scorer not in ds.available_scorers:
                 continue
@@ -1109,6 +1112,7 @@ def generate_supp_nmr_fig1(results: dict, output_dir: Path):
         for scorer, color, label in [
             ("thermompnn", "tab:blue", "ThMPNN"),
             ("esm1v", "tab:green", "ESM-1v"),
+            ("proteinmpnn", "tab:orange", "PMPNN"),
         ]:
             if scorer not in ds.available_scorers:
                 continue

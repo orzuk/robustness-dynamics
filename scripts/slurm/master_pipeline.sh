@@ -345,7 +345,7 @@ if should_run 5; then
     fi
 
     # ATLAS (both scorers; script handles both RMSF + B-factor targets)
-    for SCORER in thermompnn esm1v; do
+    for SCORER in thermompnn esm1v proteinmpnn; do
         echo -n "  ATLAS ${SCORER}: "
         submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=02:00:00 --mem=16G --cpus-per-task=4 \
             --job-name=corr_a_${SCORER:0:1} --output="${LOG_DIR}/corr_atlas_${SCORER}_%j.out" \
@@ -354,7 +354,7 @@ if should_run 5; then
     done
 
     # BBFlow
-    for SCORER in thermompnn esm1v; do
+    for SCORER in thermompnn esm1v proteinmpnn; do
         echo -n "  BBFlow ${SCORER}: "
         submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=02:00:00 --mem=16G --cpus-per-task=4 \
             --job-name=corr_b_${SCORER:0:1} --output="${LOG_DIR}/corr_bb_${SCORER}_%j.out" \
@@ -363,7 +363,7 @@ if should_run 5; then
     done
 
     # PDB designs (exclude natural proteins that passed keyword filter)
-    for SCORER in thermompnn esm1v; do
+    for SCORER in thermompnn esm1v proteinmpnn; do
         echo -n "  PDB designs ${SCORER}: "
         submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=02:00:00 --mem=16G --cpus-per-task=4 \
             --job-name=corr_p_${SCORER:0:1} --output="${LOG_DIR}/corr_pdb_${SCORER}_%j.out" \
@@ -372,7 +372,7 @@ if should_run 5; then
     done
 
     # RCI-S2
-    for SCORER in thermompnn esm1v; do
+    for SCORER in thermompnn esm1v proteinmpnn; do
         echo -n "  RCI-S2 ${SCORER}: "
         submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=02:00:00 --mem=16G --cpus-per-task=4 \
             --job-name=corr_r_${SCORER:0:1} --output="${LOG_DIR}/corr_rci_${SCORER}_%j.out" \
@@ -380,47 +380,85 @@ if should_run 5; then
             --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/correlate_robustness_dynamics.py --atlas_dir ${RCI_OUTPUT_DIR} --robustness_dir ${RCI_ROBUSTNESS_DIR} --scorer ${SCORER} --output_dir ${RCI_ANALYSIS_DIR} --target bfactor ${CONSURF_FLAG}'"
     done
 
+    # RelaxDB (hetNOE + R2 + R2/R1 targets)
+    RELAXDB_DATA="${PROJECT_DIR}/data/relaxdb_processed"
+    RELAXDB_ROB="${PROJECT_DIR}/data/relaxdb_robustness"
+    RELAXDB_ANALYSIS="${PROJECT_DIR}/data/relaxdb_analysis"
+    for SCORER in thermompnn esm1v proteinmpnn; do
+        echo -n "  RelaxDB ${SCORER}: "
+        submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=02:00:00 --mem=16G --cpus-per-task=4 \
+            --job-name=corr_x_${SCORER:0:1} --output="${LOG_DIR}/corr_relaxdb_${SCORER}_%j.out" \
+            $DEP \
+            --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/correlate_robustness_dynamics.py --atlas_dir ${RELAXDB_DATA} --robustness_dir ${RELAXDB_ROB} --scorer ${SCORER} --output_dir ${RELAXDB_ANALYSIS} --target bfactor'"
+    done
+    # RelaxDB virtual targets (R2, R2/R1)
+    for SUFFIX_TAG in "_R2.tsv:R2" "_R2R1.tsv:R2R1"; do
+        SUFFIX="${SUFFIX_TAG%%:*}"
+        TAG="${SUFFIX_TAG##*:}"
+        for SCORER in thermompnn proteinmpnn; do
+            echo -n "  RelaxDB ${TAG} ${SCORER}: "
+            submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=02:00:00 --mem=16G --cpus-per-task=4 \
+                --job-name=corr_x${TAG:0:1}_${SCORER:0:1} --output="${LOG_DIR}/corr_relaxdb_${TAG}_${SCORER}_%j.out" \
+                $DEP \
+                --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/correlate_robustness_dynamics.py --atlas_dir ${RELAXDB_DATA} --robustness_dir ${RELAXDB_ROB} --scorer ${SCORER} --output_dir ${PROJECT_DIR}/data/relaxdb_analysis_${TAG} --target bfactor --bfactor_suffix ${SUFFIX}'"
+        done
+    done
+
+    # S2 experimental
+    S2EXP_DATA="${PROJECT_DIR}/data/s2_exp_processed"
+    S2EXP_ROB="${PROJECT_DIR}/data/s2_exp_robustness"
+    S2EXP_ANALYSIS="${PROJECT_DIR}/data/s2_exp_analysis"
+    for SCORER in thermompnn esm1v proteinmpnn; do
+        echo -n "  S2-exp ${SCORER}: "
+        submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=02:00:00 --mem=16G --cpus-per-task=4 \
+            --job-name=corr_s_${SCORER:0:1} --output="${LOG_DIR}/corr_s2exp_${SCORER}_%j.out" \
+            $DEP \
+            --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/correlate_robustness_dynamics.py --atlas_dir ${S2EXP_DATA} --robustness_dir ${S2EXP_ROB} --scorer ${SCORER} --output_dir ${S2EXP_ANALYSIS} --target bfactor'"
+    done
+
     advance_stage
     echo ""
 fi
 
 # ============================================================================
-# STAGE 6: Multi-DDG regression (CPU, ThermoMPNN only)
+# STAGE 6: Multi-DDG regression (CPU, ThermoMPNN + ProteinMPNN)
 # ============================================================================
 if should_run 6; then
     echo "=== STAGE 6: Multi-DDG regression ==="
 
     DEP=$(dep_flag)
 
-    echo -n "  ATLAS RMSF: "
-    submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=04:00:00 --mem=32G --cpus-per-task=4 \
-        --job-name=mddg_a_r --output="${LOG_DIR}/mddg_atlas_rmsf_%j.out" \
-        $DEP \
-        --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${ATLAS_DIR} --robustness_dir ${ROBUSTNESS_DIR} --scorer thermompnn --target rmsf --output_dir ${ANALYSIS_DIR}'"
+    for SCORER in thermompnn proteinmpnn; do
+        echo -n "  ATLAS RMSF (${SCORER}): "
+        submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=04:00:00 --mem=32G --cpus-per-task=4 \
+            --job-name=mddg_a_r_${SCORER:0:1} --output="${LOG_DIR}/mddg_atlas_rmsf_${SCORER}_%j.out" \
+            $DEP \
+            --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${ATLAS_DIR} --robustness_dir ${ROBUSTNESS_DIR} --scorer ${SCORER} --target rmsf --output_dir ${ANALYSIS_DIR}'"
 
-    echo -n "  ATLAS B-factor: "
-    submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=04:00:00 --mem=32G --cpus-per-task=4 \
-        --job-name=mddg_a_b --output="${LOG_DIR}/mddg_atlas_bfac_%j.out" \
-        $DEP \
-        --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${ATLAS_DIR} --robustness_dir ${ROBUSTNESS_DIR} --scorer thermompnn --target bfactor --output_dir ${ANALYSIS_DIR}'"
+        echo -n "  ATLAS B-factor (${SCORER}): "
+        submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=04:00:00 --mem=32G --cpus-per-task=4 \
+            --job-name=mddg_a_b_${SCORER:0:1} --output="${LOG_DIR}/mddg_atlas_bfac_${SCORER}_%j.out" \
+            $DEP \
+            --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${ATLAS_DIR} --robustness_dir ${ROBUSTNESS_DIR} --scorer ${SCORER} --target bfactor --output_dir ${ANALYSIS_DIR}'"
 
-    echo -n "  BBFlow RMSF: "
-    submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=01:00:00 --mem=16G --cpus-per-task=4 \
-        --job-name=mddg_b --output="${LOG_DIR}/mddg_bbflow_%j.out" \
-        $DEP \
-        --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${BBFLOW_PROCESSED} --robustness_dir ${BBFLOW_ROBUSTNESS} --scorer thermompnn --target rmsf --output_dir ${BBFLOW_ANALYSIS}'"
+        echo -n "  BBFlow RMSF (${SCORER}): "
+        submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=01:00:00 --mem=16G --cpus-per-task=4 \
+            --job-name=mddg_b_${SCORER:0:1} --output="${LOG_DIR}/mddg_bbflow_${SCORER}_%j.out" \
+            $DEP \
+            --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${BBFLOW_PROCESSED} --robustness_dir ${BBFLOW_ROBUSTNESS} --scorer ${SCORER} --target rmsf --output_dir ${BBFLOW_ANALYSIS}'"
 
-    echo -n "  PDB designs B-factor: "
-    submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=01:00:00 --mem=16G --cpus-per-task=4 \
-        --job-name=mddg_p --output="${LOG_DIR}/mddg_pdb_%j.out" \
-        $DEP \
-        --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${PDB_DESIGNS_DIR} --robustness_dir ${PDB_DESIGNS_ROBUSTNESS} --scorer thermompnn --target bfactor --output_dir ${PDB_DESIGNS_ANALYSIS} --exclude ${PDB_EXCLUDE}'"
+        echo -n "  PDB designs B-factor (${SCORER}): "
+        submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=01:00:00 --mem=16G --cpus-per-task=4 \
+            --job-name=mddg_p_${SCORER:0:1} --output="${LOG_DIR}/mddg_pdb_${SCORER}_%j.out" \
+            $DEP \
+            --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${PDB_DESIGNS_DIR} --robustness_dir ${PDB_DESIGNS_ROBUSTNESS} --scorer ${SCORER} --target bfactor --output_dir ${PDB_DESIGNS_ANALYSIS} --exclude ${PDB_EXCLUDE}'"
 
-    echo -n "  RCI-S2 B-factor: "
-    submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=04:00:00 --mem=32G --cpus-per-task=4 \
-        --job-name=mddg_r --output="${LOG_DIR}/mddg_rci_%j.out" \
-        $DEP \
-        --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${RCI_OUTPUT_DIR} --robustness_dir ${RCI_ROBUSTNESS_DIR} --scorer thermompnn --target bfactor --output_dir ${RCI_ANALYSIS_DIR}'"
+        echo -n "  RCI-S2 B-factor (${SCORER}): "
+        submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=04:00:00 --mem=32G --cpus-per-task=4 \
+            --job-name=mddg_r_${SCORER:0:1} --output="${LOG_DIR}/mddg_rci_${SCORER}_%j.out" \
+            $DEP \
+            --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/multi_ddg_regression.py --atlas_dir ${RCI_OUTPUT_DIR} --robustness_dir ${RCI_ROBUSTNESS_DIR} --scorer ${SCORER} --target bfactor --output_dir ${RCI_ANALYSIS_DIR}'"
+    done
 
     advance_stage
     echo ""
@@ -471,6 +509,49 @@ if should_run 8; then
         --job-name=rob_p_pm --output="${LOG_DIR}/rob_pdb_pmpnn_%A_%a.out" \
         $DEP \
         --export="ALL,PMPNN_ATLAS_DIR=${PDB_DESIGNS_DIR},PMPNN_OUTPUT_DIR=${PDB_DESIGNS_ROBUSTNESS}" \
+        "${SCRIPT_DIR}/11_compute_robustness_proteinmpnn.sh"
+
+    # --- RCI-S2 ---
+    N_RCI_PROTS=$(ls "${RCI_OUTPUT_DIR}/proteins/" 2>/dev/null | wc -l)
+    RCI_CHUNKS=$(( (N_RCI_PROTS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+    RCI_MAX=$(( RCI_CHUNKS - 1 ))
+    [[ "$TEST_MODE" == true ]] && RCI_MAX=0
+
+    echo -n "  RCI-S2 ProteinMPNN (array 0-${RCI_MAX}): "
+    submit_job ${ACCOUNT} --array=0-${RCI_MAX} --partition=${GPU_PARTITION} \
+        --job-name=rob_r_pm --output="${LOG_DIR}/rob_rci_pmpnn_%A_%a.out" \
+        $DEP \
+        --export="ALL,PMPNN_ATLAS_DIR=${RCI_OUTPUT_DIR},PMPNN_OUTPUT_DIR=${RCI_ROBUSTNESS_DIR}" \
+        "${SCRIPT_DIR}/11_compute_robustness_proteinmpnn.sh"
+
+    # --- RelaxDB ---
+    RELAXDB_DATA="${PROJECT_DIR}/data/relaxdb_processed"
+    RELAXDB_ROB="${PROJECT_DIR}/data/relaxdb_robustness"
+    N_RELAXDB_PROTS=$(ls "${RELAXDB_DATA}/proteins/" 2>/dev/null | wc -l)
+    RELAXDB_CHUNKS=$(( (N_RELAXDB_PROTS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+    RELAXDB_MAX=$(( RELAXDB_CHUNKS - 1 ))
+    [[ "$TEST_MODE" == true ]] && RELAXDB_MAX=0
+
+    echo -n "  RelaxDB ProteinMPNN (array 0-${RELAXDB_MAX}): "
+    submit_job ${ACCOUNT} --array=0-${RELAXDB_MAX} --partition=${GPU_PARTITION} \
+        --job-name=rob_x_pm --output="${LOG_DIR}/rob_relaxdb_pmpnn_%A_%a.out" \
+        $DEP \
+        --export="ALL,PMPNN_ATLAS_DIR=${RELAXDB_DATA},PMPNN_OUTPUT_DIR=${RELAXDB_ROB}" \
+        "${SCRIPT_DIR}/11_compute_robustness_proteinmpnn.sh"
+
+    # --- S2 experimental ---
+    S2EXP_DATA="${PROJECT_DIR}/data/s2_exp_processed"
+    S2EXP_ROB="${PROJECT_DIR}/data/s2_exp_robustness"
+    N_S2EXP_PROTS=$(ls "${S2EXP_DATA}/proteins/" 2>/dev/null | wc -l)
+    S2EXP_CHUNKS=$(( (N_S2EXP_PROTS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+    S2EXP_MAX=$(( S2EXP_CHUNKS - 1 ))
+    [[ "$TEST_MODE" == true ]] && S2EXP_MAX=0
+
+    echo -n "  S2-exp ProteinMPNN (array 0-${S2EXP_MAX}): "
+    submit_job ${ACCOUNT} --array=0-${S2EXP_MAX} --partition=${GPU_PARTITION} \
+        --job-name=rob_s_pm --output="${LOG_DIR}/rob_s2exp_pmpnn_%A_%a.out" \
+        $DEP \
+        --export="ALL,PMPNN_ATLAS_DIR=${S2EXP_DATA},PMPNN_OUTPUT_DIR=${S2EXP_ROB}" \
         "${SCRIPT_DIR}/11_compute_robustness_proteinmpnn.sh"
 
     advance_stage
