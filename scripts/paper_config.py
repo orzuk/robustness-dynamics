@@ -174,7 +174,7 @@ DATASETS = {
     # NMR-APP designed proteins (Muntener et al. 2026, Hiller lab)
     "nmr_app_hetNOE": Dataset(
         name="nmr_app_hetNOE",
-        display_name="NMR-APP (1$-$hetNOE)",
+        display_name="NMR-APP ($1{-}$hetNOE)",
         data_dir=f"{CLUSTER.project_dir}/data/nmr_app_processed",
         robustness_dir=f"{CLUSTER.project_dir}/data/nmr_app_robustness",
         analysis_dir=f"{CLUSTER.project_dir}/data/nmr_app_analysis/hetNOE",
@@ -351,7 +351,7 @@ NMR_COLUMNS = [
     ("relaxdb", "bfactor"),
     ("relaxdb_R2", "bfactor"),
     ("relaxdb_R2R1", "bfactor"),
-    ("s2_experimental", "bfactor"),
+    # s2_experimental dropped: only 6 proteins, too few for reliable conclusions
     ("nmr_app_hetNOE", "bfactor"),
     ("nmr_app_R1", "bfactor"),
     ("nmr_app_R2", "bfactor"),

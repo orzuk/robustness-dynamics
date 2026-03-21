@@ -55,6 +55,10 @@ def build_correlation_command(run: AnalysisRun) -> str:
     ]
     if ds.bfactor_only:
         cmd_parts.append("--target bfactor")
+    if ds.bfactor_suffix != "_Bfactor.tsv":
+        cmd_parts.append(f"--bfactor_suffix {ds.bfactor_suffix}")
+    # Add ConSurf conservation if directory exists
+    cmd_parts.append(f"--consurf_dir {CLUSTER.consurf_dir}")
     return " \\\n    ".join(cmd_parts)
 
 
@@ -69,6 +73,8 @@ def build_multi_ddg_command(run: AnalysisRun) -> str:
         f"--output_dir {ds.analysis_dir}",
         f"--target {run.target}",
     ]
+    if ds.bfactor_suffix != "_Bfactor.tsv":
+        cmd_parts.append(f"--bfactor_suffix {ds.bfactor_suffix}")
     return " \\\n    ".join(cmd_parts)
 
 

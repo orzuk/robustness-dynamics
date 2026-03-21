@@ -15,11 +15,17 @@ import argparse
 from pathlib import Path
 
 from paper_config import (
-    TABLE1_COLUMNS_ALL as TABLE1_COLUMNS, TABLE1_PREDICTORS,
+    TABLE1_COLUMNS as TABLE1_COLUMNS_MD,
+    NMR_COLUMNS as TABLE1_COLUMNS_NMR,
+    TABLE1_COLUMNS_ALL,
+    TABLE1_PREDICTORS,
     TABLE2_SS_STRATA, TABLE2_BURIAL_STRATA,
     TABLE3_MODEL_ORDER, ALT_ROBUSTNESS_MEASURES,
     DATASETS,
 )
+
+# Use split panels: MD/B-factor (Panel A) and NMR (Panel B)
+TABLE1_COLUMNS = TABLE1_COLUMNS_MD  # default for backward compat
 
 
 def _fmt(val, decimals=3, sign=False):
@@ -135,51 +141,122 @@ def _get_strat(run, strat_type, category, field):
 # TABLE 1: Main bivariate results
 # ============================================================================
 
-def _table1_header(lines, n_cols):
-    """Shared column headers for Table 1 and Supp Table S1."""
-    headers1 = [""]
-    headers2 = [""]
-    for ds_name, target in TABLE1_COLUMNS:
-        ds = DATASETS[ds_name]
-        headers1.append(r"\textbf{" + ds.display_name + "}")
-        tgt_label = "RMSF" if target == "rmsf" else "B-factor"
-        if ds_name == "rci_s2":
-            tgt_label = r"$1{-}S^2_\mathrm{RCI}$"
-        headers2.append(r"\textbf{" + tgt_label + "}")
-    lines.append(" & ".join(headers1) + r" \\")
-    lines.append(" & ".join(headers2) + r" \\")
+# NMR column metadata: (group_name, observable_label)
+# group_name is used for \multicolumn spans; observable_label is per-column
+_NMR_COL_INFO = {
+    "rci_s2":          ("RCI", r"$1{-}S^2$"),
+    "relaxdb":         ("RelaxDB", "hetNOE"),
+    "relaxdb_R2":      ("RelaxDB", r"R$_2$"),
+    "relaxdb_R2R1":    ("RelaxDB", r"R$_2$/R$_1$"),
+    "s2_experimental": ("Exp.", r"S$^2$"),
+    "nmr_app_hetNOE":  ("NMR-APP", r"$1{-}$het"),
+    "nmr_app_R1":      ("NMR-APP", r"R$_1$"),
+    "nmr_app_R2":      ("NMR-APP", r"R$_2$"),
+    "nmr_app_R2R1":    ("NMR-APP", r"R$_2$/R$_1$"),
+}
+
+# For detecting NMR columns
+_NMR_SHORT_HEADERS = _NMR_COL_INFO
+
+
+def _build_nmr_group_header(columns, extra_leading=0):
+    """Build row 1 with \\multicolumn spans for NMR dataset groups.
+
+    extra_leading: number of extra leading columns (e.g. 1 for "Feats" in table3).
+    Returns (header_line, cmidrule_line) — both without trailing newlines.
+    """
+    # Compute consecutive runs of the same group
+    groups = []  # [(group_name, span_count)]
+    for ds_name, _ in columns:
+        grp = _NMR_COL_INFO.get(ds_name, ("", ""))[0]
+        if groups and groups[-1][0] == grp:
+            groups[-1] = (grp, groups[-1][1] + 1)
+        else:
+            groups.append((grp, 1))
+
+    parts = [""] + [""] * extra_leading  # leading empty cells for row label + extras
+    cmidrules = []
+    col_pos = 1 + extra_leading + 1  # 1-based: skip label col + extras
+    for grp_name, span in groups:
+        if span == 1:
+            parts.append(r"\textbf{" + grp_name + "}")
+        else:
+            parts.append(r"\multicolumn{" + str(span) + r"}{c}{\textbf{" + grp_name + "}}")
+            cmidrules.append(r"\cmidrule(lr){" + f"{col_pos}-{col_pos + span - 1}" + "}")
+        col_pos += span
+    header_line = " & ".join(parts)
+    cmidrule_line = " ".join(cmidrules)
+    return header_line, cmidrule_line
+
+
+def _table1_header(lines, n_cols, columns=None):
+    """Shared column headers for tables.
+
+    MD columns: 2-row header (dataset name + target).
+    NMR columns: 2-row header with multicolumn group spans + observable.
+    """
+    if columns is None:
+        columns = TABLE1_COLUMNS
+    is_nmr = any(ds in _NMR_SHORT_HEADERS for ds, _ in columns)
+    if is_nmr:
+        # Row 1: dataset groups with \multicolumn spans
+        hdr, cmir = _build_nmr_group_header(columns)
+        lines.append(hdr + r" \\")
+        if cmir:
+            lines.append(cmir)
+        # Row 2: observable labels
+        row2 = [""]
+        for ds_name, _target in columns:
+            obs = _NMR_COL_INFO.get(ds_name, ("", ""))[1]
+            row2.append(r"\textbf{" + obs + "}")
+        lines.append(" & ".join(row2) + r" \\")
+    else:
+        # 2-row header for MD/B-factor tables
+        headers1 = [""]
+        headers2 = [""]
+        for ds_name, target in columns:
+            ds = DATASETS[ds_name]
+            headers1.append(r"\textbf{" + ds.display_name + "}")
+            tgt_label = "RMSF" if target == "rmsf" else "B-factor"
+            if ds_name == "rci_s2":
+                tgt_label = r"$1{-}S^2_\mathrm{RCI}$"
+            headers2.append(r"\textbf{" + tgt_label + "}")
+        lines.append(" & ".join(headers1) + r" \\")
+        lines.append(" & ".join(headers2) + r" \\")
     lines.append(r"\midrule")
 
 
-def generate_table1(results: dict) -> str:
-    """Generate Table 1: simple bivariate correlations and R^2."""
-    lines = []
+def _table_preamble(lines, columns, label, caption, short_caption, extra_col=""):
+    """Emit table opening: caption, label, font size, tabcolsep, tabular env."""
+    is_nmr = any(ds in _NMR_SHORT_HEADERS for ds, _ in columns)
     lines.append(r"\begin{table}[htbp]")
     lines.append(r"\centering")
-    lines.append(r"\caption{Bivariate correlations between per-residue predictors and dynamics")
-    lines.append(r"targets across all dataset--target combinations.")
-    lines.append(r"\emph{Median per-protein $\rho$}: median across proteins of the")
-    lines.append(r"within-protein Spearman rank correlation.")
-    lines.append(r"\emph{Pooled $\rho$}: Spearman correlation on all residues after")
-    lines.append(r"within-protein z-scoring.")
-    lines.append(r"\emph{Pooled $R^2$}: OLS on z-scored residues.")
-    lines.append(r"Conservation scores from ConSurf Rate4Site (ATLAS only).")
-    lines.append(r"Best value in each predictor comparison is shown in \textbf{bold}.")
-    lines.append(r"All pooled correlations significant at $p < 10^{-10}$.")
-    lines.append(r"Partial correlations and incremental $R^2$ are in Supplementary Table~\ref{tab:supp_partial}.}")
-    lines.append(r"\label{tab:pooled}")
-    lines.append(r"\footnotesize")
-    n_cols = len(TABLE1_COLUMNS)
+    lines.append(r"\caption[" + short_caption + "]{" + caption + "}")
+    lines.append(r"\label{" + label + "}")
+    if is_nmr:
+        lines.append(r"\scriptsize")
+        lines.append(r"\setlength{\tabcolsep}{3pt}")
+    else:
+        lines.append(r"\footnotesize")
+    n_cols = len(columns)
     col_spec = "r" * n_cols
-    lines.append(r"\begin{tabular}{@{}l " + col_spec + r"@{}}")
+    lines.append(r"\begin{tabular}{@{}l " + extra_col + col_spec + r"@{}}")
     lines.append(r"\toprule")
+    return n_cols
 
-    _table1_header(lines, n_cols)
+
+def _generate_table1_body(results: dict, columns, label: str, caption: str,
+                          short_caption: str) -> str:
+    """Generate a Table 1 panel (MD or NMR) with bivariate correlations and R^2."""
+    lines = []
+    n_cols = _table_preamble(lines, columns, label, caption, short_caption)
+
+    _table1_header(lines, n_cols, columns)
 
     # n proteins / n residues
     row_np = ["$n$ proteins"]
     row_nr = ["$n$ residues"]
-    for ds_name, target in TABLE1_COLUMNS:
+    for ds_name, target in columns:
         run = _get_run(results, ds_name, "thermompnn", target)
         np_val = run.get("n_proteins")
         nr_val = run.get("n_residues")
@@ -192,8 +269,12 @@ def generate_table1(results: dict) -> str:
     # --- Median per-protein rho (highlight best |rho| per column) ---
     lines.append(r"\multicolumn{" + str(n_cols + 1) + r"}{l}{\textit{Median per-protein Spearman $\rho$ (predictor, target)}} \\")
 
-    # Predictors: ESM-1v, ThermoMPNN, pLDDT, SASA, Conservation
-    pred_list = ["esm1v", "thermompnn", "proteinmpnn", "plddt", "sasa", "conservation"]
+    # Predictors: ESM-1v + Conservation only for MD tables (incomplete on NMR)
+    is_nmr = any(ds in _NMR_SHORT_HEADERS for ds, _ in columns)
+    if is_nmr:
+        pred_list = ["thermompnn", "proteinmpnn", "plddt", "sasa"]
+    else:
+        pred_list = ["esm1v", "thermompnn", "proteinmpnn", "plddt", "sasa", "conservation"]
     pred_labels = {"esm1v": "ESM-1v", "thermompnn": "ThermoMPNN",
                    "proteinmpnn": "ProteinMPNN",
                    "plddt": "pLDDT", "sasa": "SASA",
@@ -201,7 +282,7 @@ def generate_table1(results: dict) -> str:
     med_rho_grid = []
     for pred in pred_list:
         row_cells = []
-        for ds_name, target in TABLE1_COLUMNS:
+        for ds_name, target in columns:
             if pred == "conservation":
                 run = _get_run(results, ds_name, "thermompnn", target)
                 val = _get_pp(run, "median_rho_conservation")
@@ -215,7 +296,7 @@ def generate_table1(results: dict) -> str:
         med_rho_grid.append(row_cells)
 
     # Highlight best |rho| per column
-    n_cols = len(TABLE1_COLUMNS)
+    n_cols = len(columns)
     for col_idx in range(n_cols):
         col_cells = [(med_rho_grid[pred_idx][col_idx][0],
                        med_rho_grid[pred_idx][col_idx][1])
@@ -237,7 +318,7 @@ def generate_table1(results: dict) -> str:
     pooled_rho_grid = []
     for pred in pred_list:
         row_cells = []
-        for ds_name, target in TABLE1_COLUMNS:
+        for ds_name, target in columns:
             if pred == "conservation":
                 run = _get_run(results, ds_name, "thermompnn", target)
                 val = _get_corr(run, "pooled_rho_conservation")
@@ -267,11 +348,14 @@ def generate_table1(results: dict) -> str:
 
     # --- Pooled R² (highlight best per column) ---
     lines.append(r"\multicolumn{" + str(n_cols + 1) + r"}{l}{\textit{Pooled $R^2$ (OLS on z-scored residues)}} \\")
-    r2_preds = ["esm1v", "thermompnn", "proteinmpnn", "plddt"]
+    if is_nmr:
+        r2_preds = ["thermompnn", "proteinmpnn", "plddt"]
+    else:
+        r2_preds = ["esm1v", "thermompnn", "proteinmpnn", "plddt"]
     r2_grid = []
     for pred in r2_preds:
         row_cells = []
-        for ds_name, target in TABLE1_COLUMNS:
+        for ds_name, target in columns:
             if pred == "plddt":
                 run = _get_run(results, ds_name, "thermompnn", target)
                 val = _get_corr(run, "pooled_r2_plddt")
@@ -299,7 +383,7 @@ def generate_table1(results: dict) -> str:
 
     # --- Frac beats pLDDT ---
     row = [r"Frac $|\rho_\text{rob}| > |\rho_\text{pLDDT}|$"]
-    for ds_name, target in TABLE1_COLUMNS:
+    for ds_name, target in columns:
         run = _get_run(results, ds_name, "thermompnn", target)
         val = _get_pp(run, "frac_robustness_beats_plddt")
         if val is not None:
@@ -314,44 +398,39 @@ def generate_table1(results: dict) -> str:
     return "\n".join(lines)
 
 
+def generate_table1(results: dict) -> str:
+    """Table 1 Panel A: MD / B-factor datasets."""
+    return _generate_table1_body(
+        results, TABLE1_COLUMNS_MD,
+        label="tab:bivariate",
+        caption=(r"Bivariate correlations between mutational robustness and dynamics (MD / B-factor datasets). "
+                 r"Each cell reports a correlation or $R^2$ value for the indicated predictor--target pair."),
+        short_caption="Bivariate correlations (MD / B-factor)",
+    )
+
+
+def generate_table1_nmr(results: dict) -> str:
+    """Table 1 Panel B: NMR datasets."""
+    return _generate_table1_body(
+        results, TABLE1_COLUMNS_NMR,
+        label="tab:bivariate_nmr",
+        caption=(r"Bivariate correlations between mutational robustness and dynamics (NMR datasets). "
+                 r"Layout as in Table~\ref{tab:bivariate}."),
+        short_caption="Bivariate correlations (NMR)",
+    )
+
+
 # ============================================================================
 # TABLE 2: Stratified correlations
 # ============================================================================
 
-def generate_table2(results: dict) -> str:
-    """Generate Table 2: stratified pooled rho across all datasets."""
+def _generate_table2_body(results: dict, columns, label: str, caption: str,
+                           short_caption: str) -> str:
+    """Generate a Table 2 panel: stratified pooled rho."""
     lines = []
-    lines.append(r"\begin{table}[htbp]")
-    lines.append(r"\centering")
-    lines.append(r"\caption{Stratified pooled Spearman $\rho$ between ThermoMPNN")
-    lines.append(r"$\operatorname{std}(\Delta\Delta G)$ and dynamics target,")
-    lines.append(r"grouped by secondary structure (DSSP classification: $\alpha$-helix H,")
-    lines.append(r"$\beta$-sheet E, coil C) and by burial class based on relative solvent accessibility (RSA):")
-    lines.append(r"core (RSA $<$ 20\%), boundary (20--50\%), surface ($>$ 50\%).")
-    lines.append(r"pLDDT values shown in parentheses where available.")
-    lines.append(r"Best $|\rho|$ within each column (across structural classes) is shown in \textbf{bold}.}")
-    lines.append(r"\label{tab:stratified}")
-    lines.append(r"\footnotesize")
-    n_cols = len(TABLE1_COLUMNS)
-    col_spec = "r" * n_cols
-    lines.append(r"\begin{tabular}{@{}l " + col_spec + r"@{}}")
-    lines.append(r"\toprule")
+    n_cols = _table_preamble(lines, columns, label, caption, short_caption)
 
-    # Headers (same as Table 1)
-    headers1 = [""]
-    headers2 = [""]
-    for ds_name, target in TABLE1_COLUMNS:
-        ds = DATASETS[ds_name]
-        headers1.append(r"\textbf{" + ds.display_name + "}")
-        tgt_label = "RMSF" if target == "rmsf" else "B-factor"
-        if ds_name == "rci_s2":
-            tgt_label = r"$1{-}S^2_\mathrm{RCI}$"
-        headers2.append(r"\textbf{" + tgt_label + "}")
-    lines.append(" & ".join(headers1) + r" \\")
-    lines.append(" & ".join(headers2) + r" \\")
-    lines.append(r"\midrule")
-
-    n_cols = len(TABLE1_COLUMNS)
+    _table1_header(lines, n_cols, columns)
 
     # Secondary structure
     lines.append(r"\multicolumn{" + str(n_cols + 1) + r"}{l}{\textit{Secondary structure}} \\")
@@ -360,7 +439,7 @@ def generate_table2(results: dict) -> str:
     ss_grid = []  # list of (label, [(cell_str, rho_rob), ...])
     for ss in TABLE2_SS_STRATA:
         row_cells = []
-        for ds_name, target in TABLE1_COLUMNS:
+        for ds_name, target in columns:
             run = _get_run(results, ds_name, "thermompnn", target)
             rho_rob = _get_strat(run, "secondary_structure", ss, "rho_robustness")
             rho_plddt = _get_strat(run, "secondary_structure", ss, "rho_plddt")
@@ -383,7 +462,7 @@ def generate_table2(results: dict) -> str:
     burial_grid = []
     for burial in TABLE2_BURIAL_STRATA:
         row_cells = []
-        for ds_name, target in TABLE1_COLUMNS:
+        for ds_name, target in columns:
             run = _get_run(results, ds_name, "thermompnn", target)
             rho_rob = _get_strat(run, "burial", burial, "rho_robustness")
             rho_plddt = _get_strat(run, "burial", burial, "rho_plddt")
@@ -404,46 +483,74 @@ def generate_table2(results: dict) -> str:
     return "\n".join(lines)
 
 
+_TABLE2_CAPTION = (
+    r"Stratified pooled Spearman $\rho$ between ThermoMPNN "
+    r"$\operatorname{std}(\Delta\Delta G)$ and dynamics target, "
+    r"grouped by secondary structure (DSSP classification: $\alpha$-helix H, "
+    r"$\beta$-sheet E, coil C) and by burial class based on relative solvent accessibility (RSA): "
+    r"core (RSA $<$ 20\%), boundary (20--50\%), surface ($>$ 50\%). "
+    r"pLDDT values shown in parentheses where available. "
+    r"Best $|\rho|$ within each column (across structural classes) is shown in \textbf{bold}."
+)
+
+
+def generate_table2(results: dict) -> str:
+    """Table 2 Panel A: stratified (MD / B-factor)."""
+    return _generate_table2_body(
+        results, TABLE1_COLUMNS_MD,
+        label="tab:stratified",
+        caption=_TABLE2_CAPTION,
+        short_caption="Stratified correlations (MD / B-factor)",
+    )
+
+
+def generate_table2_nmr(results: dict) -> str:
+    """Table 2 Panel B: stratified (NMR)."""
+    return _generate_table2_body(
+        results, TABLE1_COLUMNS_NMR,
+        label="tab:stratified_nmr",
+        caption=_TABLE2_CAPTION.replace("dynamics target,", r"dynamics target (NMR datasets),")
+                + r" Layout as in Table~\ref{tab:stratified}.",
+        short_caption="Stratified correlations (NMR)",
+    )
+
+
 # ============================================================================
 # TABLE 3: Alternative measures + Multi-DDG regression (united)
 # ============================================================================
 
-def generate_table3(results: dict) -> str:
-    """Generate Table 3: alternative robustness measures + multi-DDG regression."""
+def _generate_table3_body(results: dict, columns, label: str, caption: str,
+                           short_caption: str) -> str:
+    """Generate a Table 3 panel: alt robustness measures + multi-DDG regression."""
     lines = []
-    lines.append(r"\begin{table}[htbp]")
-    lines.append(r"\centering")
-    lines.append(r"\caption{Comparison of robustness summary statistics and")
-    lines.append(r"multi-$\Delta\Delta G$ regression models (ThermoMPNN scorer).")
-    lines.append(r"\emph{Top panel}: median per-protein Spearman $\rho$ for scalar")
-    lines.append(r"robustness summaries.")
-    lines.append(r"\emph{Bottom panel}: 5-fold protein-level cross-validated $R^2$")
-    lines.append(r"for regression models predicting dynamics from $\Delta\Delta G$")
-    lines.append(r"features; proteins are held out as entire units so the model")
-    lines.append(r"must generalize to unseen proteins.")
-    lines.append(r"``Feats'' = number of input features.")
-    lines.append(r"Best value in each column section is shown in \textbf{bold}.}")
-    lines.append(r"\label{tab:alt_and_multi}")
-    lines.append(r"\footnotesize")
-    n_cols = len(TABLE1_COLUMNS)
-    col_spec = "r" * n_cols
-    lines.append(r"\begin{tabular}{@{}l r " + col_spec + r"@{}}")
-    lines.append(r"\toprule")
+    n_cols = _table_preamble(lines, columns, label, caption, short_caption, extra_col="r ")
 
-    # Headers - build dynamically from TABLE1_COLUMNS
-    ds_short = {"atlas": "ATLAS", "bbflow": "BBFlow", "pdb_designs": "PDB des.",
-                "rci_s2": "NMR"}
-    tgt_short = {"rmsf": "RMSF", "bfactor": "B-fac"}
-    h1 = ["", ""]
-    h2 = ["", "Feats"]
-    for ds_name, target in TABLE1_COLUMNS:
-        h1.append(r"\textbf{" + ds_short.get(ds_name, ds_name) + "}")
-        tgt_label = tgt_short.get(target, target)
-        if ds_name == "rci_s2":
-            tgt_label = r"$1{-}S^2_\mathrm{RCI}$"
-        h2.append(r"\textbf{" + tgt_label + "}")
-    lines.append(" & ".join(h1) + r" \\")
-    lines.append(" & ".join(h2) + r" \\")
+    # Headers - build dynamically from columns
+    ds_short = {"atlas": "ATLAS", "bbflow": "BBFlow", "pdb_designs": "PDB des."}
+    is_nmr = any(ds in _NMR_SHORT_HEADERS for ds, _ in columns)
+    if is_nmr:
+        # Row 1: dataset groups with \multicolumn spans (extra_leading=1 for Feats col)
+        hdr, cmir = _build_nmr_group_header(columns, extra_leading=1)
+        lines.append(hdr + r" \\")
+        if cmir:
+            lines.append(cmir)
+        # Row 2: observable + Feats
+        row2 = ["", "Feats"]
+        for ds_name, _target in columns:
+            obs = _NMR_COL_INFO.get(ds_name, ("", ""))[1]
+            row2.append(r"\textbf{" + obs + "}")
+        lines.append(" & ".join(row2) + r" \\")
+    else:
+        h1 = ["", ""]
+        h2 = ["", "Feats"]
+        for ds_name, target in columns:
+            h1.append(r"\textbf{" + ds_short.get(ds_name, ds_name) + "}")
+            tgt_label = "RMSF" if target == "rmsf" else "B-fac"
+            if ds_name == "rci_s2":
+                tgt_label = r"$1{-}S^2_\mathrm{RCI}$"
+            h2.append(r"\textbf{" + tgt_label + "}")
+        lines.append(" & ".join(h1) + r" \\")
+        lines.append(" & ".join(h2) + r" \\")
     lines.append(r"\midrule")
 
     # --- Top half: scalar robustness summaries (median per-protein rho) ---
@@ -454,7 +561,7 @@ def generate_table3(results: dict) -> str:
     alt_grid = []  # [measure_idx][col_idx] = (formatted, raw_val)
     for measure_key, measure_label in ALT_ROBUSTNESS_MEASURES:
         row_cells = []
-        for ds_name, target in TABLE1_COLUMNS:
+        for ds_name, target in columns:
             run = _get_run(results, ds_name, "thermompnn", target)
             alt = run.get("alt_robustness_medians", {})
             val = alt.get(measure_key)
@@ -466,7 +573,7 @@ def generate_table3(results: dict) -> str:
 
     # Add pLDDT baseline row
     plddt_cells = []
-    for ds_name, target in TABLE1_COLUMNS:
+    for ds_name, target in columns:
         run = _get_run(results, ds_name, "thermompnn", target)
         val = _get_pp(run, "median_rho_plddt")
         if val is not None:
@@ -528,7 +635,7 @@ def generate_table3(results: dict) -> str:
             continue
         model_keys_used.append(model_key)
         row_cells = []
-        for ds_name, target in TABLE1_COLUMNS:
+        for ds_name, target in columns:
             run = _get_run(results, ds_name, "thermompnn", target)
             multi = run.get("multi_ddg", {})
             models = multi.get("models", {})
@@ -559,7 +666,7 @@ def generate_table3(results: dict) -> str:
     # Delta R² row
     lines.append(r"\midrule")
     row = [r"\quad $\Delta R^2$ (best $-$ pLDDT)", ""]
-    for ds_name, target in TABLE1_COLUMNS:
+    for ds_name, target in columns:
         run = _get_run(results, ds_name, "thermompnn", target)
         multi = run.get("multi_ddg", {})
         val = multi.get("delta_r2_over_plddt")
@@ -572,40 +679,62 @@ def generate_table3(results: dict) -> str:
     return "\n".join(lines)
 
 
+_TABLE3_CAPTION = (
+    r"Comparison of robustness summary statistics and "
+    r"multi-$\Delta\Delta G$ regression models (ThermoMPNN scorer). "
+    r"\emph{Top panel}: median per-protein Spearman $\rho$ for scalar "
+    r"robustness summaries. "
+    r"\emph{Bottom panel}: 5-fold protein-level cross-validated $R^2$ "
+    r"for regression models predicting dynamics from $\Delta\Delta G$ "
+    r"features; proteins are held out as entire units so the model "
+    r"must generalize to unseen proteins. "
+    r"``Feats'' = number of input features. "
+    r"Best value in each column section is shown in \textbf{bold}."
+)
+
+
+def generate_table3(results: dict) -> str:
+    """Table 3 Panel A: alt measures + multi-DDG (MD / B-factor)."""
+    return _generate_table3_body(
+        results, TABLE1_COLUMNS_MD,
+        label="tab:alt_and_multi",
+        caption=_TABLE3_CAPTION,
+        short_caption="Alternative robustness measures and multi-DDG regression (MD / B-factor)",
+    )
+
+
+def generate_table3_nmr(results: dict) -> str:
+    """Table 3 Panel B: alt measures + multi-DDG (NMR)."""
+    return _generate_table3_body(
+        results, TABLE1_COLUMNS_NMR,
+        label="tab:alt_and_multi_nmr",
+        caption=_TABLE3_CAPTION.replace("(ThermoMPNN scorer).", r"(ThermoMPNN scorer, NMR datasets).")
+                + r" Layout as in Table~\ref{tab:alt_and_multi}.",
+        short_caption="Alternative robustness measures and multi-DDG regression (NMR)",
+    )
+
+
 # ============================================================================
 # SUPP TABLE S1: Partial correlations and incremental R²
 # ============================================================================
 
-def generate_table_s1(results: dict) -> str:
-    """Generate Supp Table S1: partial correlations, Delta R², and conservation collinearity."""
+def _generate_table_s1_body(results: dict, columns, label: str, caption: str,
+                             short_caption: str) -> str:
+    """Generate a Table S1 panel: partial correlations, Delta R², conservation."""
     lines = []
-    lines.append(r"\begin{table}[htbp]")
-    lines.append(r"\centering")
-    lines.append(r"\caption{Partial correlations and incremental variance explained.")
-    lines.append(r"\emph{$\Delta R^2$}: increase in $R^2$ when adding ThermoMPNN")
-    lines.append(r"$\operatorname{std}(\Delta\Delta G)$ to the baseline predictor.")
-    lines.append(r"\emph{Partial $\rho$}: Spearman correlation of robustness vs.")
-    lines.append(r"target after controlling for the indicated confounder.")
-    lines.append(r"Conservation scores from ConSurf Rate4Site (ATLAS only).")
-    lines.append(r"All partial correlations significant at $p < 10^{-6}$.}")
-    lines.append(r"\label{tab:supp_partial}")
-    lines.append(r"\footnotesize")
-    n_cols = len(TABLE1_COLUMNS)
-    col_spec = "r" * n_cols
-    lines.append(r"\begin{tabular}{@{}l " + col_spec + r"@{}}")
-    lines.append(r"\toprule")
+    n_cols = _table_preamble(lines, columns, label, caption, short_caption)
 
-    _table1_header(lines, n_cols)
+    _table1_header(lines, n_cols, columns)
 
     # --- Delta R² (ThermoMPNN over baselines) ---
     lines.append(r"\multicolumn{" + str(n_cols + 1) + r"}{l}{\textit{$\Delta R^2$ (adding ThermoMPNN to baseline)}} \\")
-    for baseline, field_name, label in [
+    for _baseline, field_name, label in [
         ("plddt", "delta_r2_over_plddt", r"$+$ pLDDT"),
         ("sasa", "delta_r2_over_sasa", r"$+$ SASA"),
         ("conservation", "pooled_delta_r2_over_conservation", r"$+$ Conservation"),
     ]:
         row = [r"\quad " + label]
-        for ds_name, target in TABLE1_COLUMNS:
+        for ds_name, target in columns:
             run = _get_run(results, ds_name, "thermompnn", target)
             val = _get_corr(run, field_name)
             row.append(_signed(val) if val is not None else "---")
@@ -617,7 +746,7 @@ def generate_table_s1(results: dict) -> str:
     for conf, label in [("plddt", r"$|$\,pLDDT"), ("sasa", r"$|$\,SASA"),
                          ("conservation", r"$|$\,Conservation")]:
         row = [r"\quad " + label]
-        for ds_name, target in TABLE1_COLUMNS:
+        for ds_name, target in columns:
             run = _get_run(results, ds_name, "thermompnn", target)
             field = f"pooled_partial_rho_{conf}"
             val = _get_corr(run, field)
@@ -627,7 +756,7 @@ def generate_table_s1(results: dict) -> str:
 
     # --- Robustness vs conservation (collinearity) ---
     row_col = [r"$\rho$(robustness, conservation)"]
-    for ds_name, target in TABLE1_COLUMNS:
+    for ds_name, target in columns:
         run = _get_run(results, ds_name, "thermompnn", target)
         val = _get_corr(run, "pooled_rho_robustness_conservation")
         row_col.append(_neg_sign(val))
@@ -639,15 +768,51 @@ def generate_table_s1(results: dict) -> str:
     return "\n".join(lines)
 
 
+_TABLE_S1_CAPTION = (
+    r"Partial correlations and incremental variance explained. "
+    r"\emph{$\Delta R^2$}: increase in $R^2$ when adding ThermoMPNN "
+    r"$\operatorname{std}(\Delta\Delta G)$ to the baseline predictor. "
+    r"\emph{Partial $\rho$}: Spearman correlation of robustness vs.\ "
+    r"target after controlling for the indicated confounder. "
+    r"Conservation scores from ConSurf Rate4Site (ATLAS only). "
+    r"All partial correlations significant at $p < 10^{-6}$."
+)
+
+
+def generate_table_s1(results: dict) -> str:
+    """Table S1 Panel A: partial correlations (MD / B-factor)."""
+    return _generate_table_s1_body(
+        results, TABLE1_COLUMNS_MD,
+        label="tab:supp_partial",
+        caption=_TABLE_S1_CAPTION,
+        short_caption="Partial correlations and incremental R-squared (MD / B-factor)",
+    )
+
+
+def generate_table_s1_nmr(results: dict) -> str:
+    """Table S1 Panel B: partial correlations (NMR)."""
+    return _generate_table_s1_body(
+        results, TABLE1_COLUMNS_NMR,
+        label="tab:supp_partial_nmr",
+        caption=_TABLE_S1_CAPTION.replace("variance explained.", r"variance explained (NMR datasets).")
+                + r" Layout as in Table~\ref{tab:supp_partial}.",
+        short_caption="Partial correlations and incremental R-squared (NMR)",
+    )
+
+
 # ============================================================================
 # MAIN
 # ============================================================================
 
 TABLE_GENERATORS = {
-    "table1": ("Table 1 (bivariate results)", generate_table1),
-    "table_s1": ("Supp Table S1 (partial correlations & incremental R^2)", generate_table_s1),
-    "table2": ("Table 2 (stratified)", generate_table2),
-    "table3": ("Table 3 (alt measures + multi-DDG)", generate_table3),
+    "table1": ("Table 1a (bivariate, MD/B-factor)", generate_table1),
+    "table1_nmr": ("Table 1b (bivariate, NMR)", generate_table1_nmr),
+    "table2": ("Table 2a (stratified, MD/B-factor)", generate_table2),
+    "table2_nmr": ("Table 2b (stratified, NMR)", generate_table2_nmr),
+    "table3": ("Table 3a (alt measures + multi-DDG, MD/B-factor)", generate_table3),
+    "table3_nmr": ("Table 3b (alt measures + multi-DDG, NMR)", generate_table3_nmr),
+    "table_s1": ("Table S1a (partial correlations, MD/B-factor)", generate_table_s1),
+    "table_s1_nmr": ("Table S1b (partial correlations, NMR)", generate_table_s1_nmr),
 }
 
 

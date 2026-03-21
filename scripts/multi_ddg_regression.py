@@ -214,6 +214,7 @@ def build_dataset(
     max_seq_length: int = 0,
     max_proteins: int = 0,
     exclude_proteins: Optional[set] = None,
+    bfactor_suffix: str = "_Bfactor.tsv",
 ) -> Tuple[List[dict], List[str]]:
     """Build list of per-protein data dicts for regression.
 
@@ -262,7 +263,7 @@ def build_dataset(
             y = load_rmsf(protein_dir)
         elif target == "bfactor":
             y, target_positions = load_atlas_column(
-                protein_dir, "_Bfactor.tsv", "bfactor", return_positions=True)
+                protein_dir, bfactor_suffix, "bfactor", return_positions=True)
         else:
             raise ValueError(f"Unknown target: {target}")
 
@@ -753,6 +754,8 @@ def main():
     parser.add_argument("--max_proteins", type=int, default=0)
     parser.add_argument("--exclude", type=str, nargs="*", default=None,
                         help="Protein IDs to exclude (e.g. 2GAR_A 3F4M_A)")
+    parser.add_argument("--bfactor_suffix", type=str, default="_Bfactor.tsv",
+                        help="TSV suffix for bfactor target (e.g. _R2.tsv)")
     args = parser.parse_args()
 
     print(f"{'='*60}")
@@ -769,6 +772,7 @@ def main():
         max_seq_length=args.max_seq_length,
         max_proteins=args.max_proteins,
         exclude_proteins=exclude_set,
+        bfactor_suffix=args.bfactor_suffix,
     )
 
     if not dataset:
