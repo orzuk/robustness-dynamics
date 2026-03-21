@@ -427,6 +427,73 @@ if should_run 6; then
 fi
 
 # ============================================================================
+# STAGE 8: ProteinMPNN robustness (GPU array jobs, all datasets)
+# ============================================================================
+if should_run 8; then
+    echo "=== STAGE 8: ProteinMPNN robustness (GPU) ==="
+
+    DEP=$(dep_flag)
+
+    # --- ATLAS ---
+    N_ATLAS_PROTS=$(ls "${ATLAS_DIR}/proteins/" 2>/dev/null | wc -l)
+    ATLAS_CHUNKS=$(( (N_ATLAS_PROTS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+    ATLAS_MAX=$(( ATLAS_CHUNKS - 1 ))
+    [[ "$TEST_MODE" == true ]] && ATLAS_MAX=0
+
+    echo -n "  ATLAS ProteinMPNN (array 0-${ATLAS_MAX}): "
+    submit_job ${ACCOUNT} --array=0-${ATLAS_MAX} --partition=${GPU_PARTITION} \
+        --job-name=rob_a_pm --output="${LOG_DIR}/rob_atlas_pmpnn_%A_%a.out" \
+        $DEP \
+        --export="ALL,PMPNN_ATLAS_DIR=${ATLAS_DIR},PMPNN_OUTPUT_DIR=${ROBUSTNESS_DIR}" \
+        "${SCRIPT_DIR}/11_compute_robustness_proteinmpnn.sh"
+
+    # --- BBFlow ---
+    N_BB_PROTS=$(ls "${BBFLOW_PROCESSED}/proteins/" 2>/dev/null | wc -l)
+    BB_CHUNKS=$(( (N_BB_PROTS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+    BB_MAX=$(( BB_CHUNKS - 1 ))
+    [[ "$TEST_MODE" == true ]] && BB_MAX=0
+
+    echo -n "  BBFlow ProteinMPNN (array 0-${BB_MAX}): "
+    submit_job ${ACCOUNT} --array=0-${BB_MAX} --partition=${GPU_PARTITION} \
+        --job-name=rob_b_pm --output="${LOG_DIR}/rob_bb_pmpnn_%A_%a.out" \
+        $DEP \
+        --export="ALL,PMPNN_ATLAS_DIR=${BBFLOW_PROCESSED},PMPNN_OUTPUT_DIR=${BBFLOW_ROBUSTNESS}" \
+        "${SCRIPT_DIR}/11_compute_robustness_proteinmpnn.sh"
+
+    # --- PDB designs ---
+    N_PDB_PROTS=$(ls "${PDB_DESIGNS_DIR}/proteins/" 2>/dev/null | wc -l)
+    PDB_CHUNKS=$(( (N_PDB_PROTS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+    PDB_MAX=$(( PDB_CHUNKS - 1 ))
+    [[ "$TEST_MODE" == true ]] && PDB_MAX=0
+
+    echo -n "  PDB designs ProteinMPNN (array 0-${PDB_MAX}): "
+    submit_job ${ACCOUNT} --array=0-${PDB_MAX} --partition=${GPU_PARTITION} \
+        --job-name=rob_p_pm --output="${LOG_DIR}/rob_pdb_pmpnn_%A_%a.out" \
+        $DEP \
+        --export="ALL,PMPNN_ATLAS_DIR=${PDB_DESIGNS_DIR},PMPNN_OUTPUT_DIR=${PDB_DESIGNS_ROBUSTNESS}" \
+        "${SCRIPT_DIR}/11_compute_robustness_proteinmpnn.sh"
+
+    advance_stage
+    echo ""
+fi
+
+# ============================================================================
+# STAGE 9: AA-stratified analysis (CPU)
+# ============================================================================
+if should_run 9; then
+    echo "=== STAGE 9: AA-stratified analysis ==="
+
+    echo -n "  All datasets: "
+    submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=01:00:00 --mem=16G --cpus-per-task=4 \
+        --job-name=aa_strat --output="${LOG_DIR}/aa_stratified_%j.out" \
+        $(dep_flag) \
+        "${SCRIPT_DIR}/12_aa_stratified.sh"
+
+    advance_stage
+    echo ""
+fi
+
+# ============================================================================
 # STAGE 7: Collect results + generate tables and figures
 # ============================================================================
 if should_run 7; then

@@ -482,6 +482,217 @@ class ThermoMPNNScorer(DDGScorer):
         return ddg_matrix
 
 
+class ProteinMPNNScorer(DDGScorer):
+    """ProteinMPNN conditional log-likelihood scorer (structure-conditioned).
+
+    Computes pseudo-DDG from ProteinMPNN's conditional probabilities:
+        pseudo_DDG(i, wt->mut) = -log P(mut | structure, context)
+                                  + log P(wt  | structure, context)
+
+    Positive values = destabilizing (mutant less likely than wildtype).
+    This is the standard "ProteinMPNN score" used in the design community.
+
+    Uses the same backbone encoder and PDB parser as ThermoMPNN, but
+    without the fine-tuned DDG head. Requires the vanilla ProteinMPNN
+    weights (v_48_020.pt) from the ThermoMPNN installation.
+
+    Install: same as ThermoMPNN (uses the same repo and weights).
+    Set THERMOMPNN_DIR env var to the ThermoMPNN repo root.
+
+    Ref: Dauparas et al. 2022, Science 378:49-56
+    """
+
+    def __init__(self, thermompnn_dir: Optional[str] = None,
+                 chain_id: str = "A"):
+        self._model = None
+        self._device = "cuda"
+        self._thermompnn_dir = thermompnn_dir or os.environ.get(
+            "THERMOMPNN_DIR", None)
+        self._chain_id = chain_id
+
+    @property
+    def name(self) -> str:
+        return "proteinmpnn"
+
+    @property
+    def requires_structure(self) -> bool:
+        return True
+
+    def load_model(self, device: str = "cuda"):
+        self._device = device
+
+        if self._thermompnn_dir is None:
+            raise ValueError(
+                "ProteinMPNN directory not set. Either:\n"
+                "  1. Set THERMOMPNN_DIR environment variable, or\n"
+                "  2. Pass --thermompnn_dir /path/to/ThermoMPNN\n"
+                "The directory should contain vanilla_model_weights/v_48_020.pt.\n"
+                "Clone from: https://github.com/Kuhlman-Lab/ThermoMPNN"
+            )
+
+        thermompnn_dir = Path(self._thermompnn_dir)
+
+        repo_str = str(thermompnn_dir)
+        if repo_str not in sys.path:
+            sys.path.insert(0, repo_str)
+
+        try:
+            import torch
+            from protein_mpnn_utils import (
+                alt_parse_PDB, ProteinMPNN, tied_featurize
+            )
+        except ImportError as e:
+            raise ImportError(
+                f"Failed to import ProteinMPNN modules: {e}\n"
+                "Make sure you have the ThermoMPNN environment activated:\n"
+                "  mamba activate thermompnn\n"
+                "And THERMOMPNN_DIR points to the cloned repo root."
+            )
+
+        self._alt_parse_PDB = alt_parse_PDB
+        self._tied_featurize = tied_featurize
+        self._torch = torch
+
+        # Load vanilla ProteinMPNN weights
+        weights_path = thermompnn_dir / "vanilla_model_weights" / "v_48_020.pt"
+        if not weights_path.exists():
+            raise FileNotFoundError(
+                f"ProteinMPNN weights not found: {weights_path}\n"
+                "Expected in ThermoMPNN repo under vanilla_model_weights/"
+            )
+
+        checkpoint = torch.load(str(weights_path), map_location=device)
+        # ProteinMPNN model hyperparameters (standard v_48_020 defaults)
+        model = ProteinMPNN(
+            num_letters=21,
+            node_features=128,
+            edge_features=128,
+            hidden_dim=128,
+            num_encoder_layers=3,
+            num_decoder_layers=3,
+            augment_eps=0.0,
+            k_neighbors=checkpoint.get("num_edges", 48),
+            vocab=21,
+            ca_only=False,
+        )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        self._model = model.eval().to(device)
+
+        print(f"  ProteinMPNN loaded from {weights_path}")
+
+    def score_sequence(self, seq: str, pdb_path: Optional[str] = None) -> float:
+        """Not used directly — compute_ddg_matrix is more efficient."""
+        return 0.0
+
+    def compute_ddg_matrix(self, seq: str, pdb_path: Optional[str] = None,
+                           chain_id: Optional[str] = None) -> np.ndarray:
+        """Compute L x 19 pseudo-DDG matrix from ProteinMPNN log-likelihoods.
+
+        For each position i, the model outputs log P(aa | structure, context)
+        for all 20 amino acids. The pseudo-DDG is:
+            pseudo_DDG(i, mut) = log P(wt_i) - log P(mut)
+        so positive = mutant is less favorable.
+        """
+        if pdb_path is None:
+            raise ValueError("ProteinMPNN requires a PDB file (pdb_path)")
+
+        torch = self._torch
+        L = len(seq)
+        ddg_full = np.full((L, N_AA), np.nan, dtype=np.float32)
+
+        # Parse PDB
+        parse_chain = chain_id or self._chain_id
+        pdb_data = self._alt_parse_PDB(pdb_path,
+                                        input_chain_list=parse_chain)
+        if not pdb_data or not pdb_data[0].get("seq", ""):
+            pdb_data = self._alt_parse_PDB(pdb_path)
+        # Fallback: add chain A for chainless PDBs (same as ThermoMPNN)
+        if not pdb_data or not pdb_data[0].get("seq", ""):
+            import tempfile
+            with open(pdb_path) as f:
+                lines = f.readlines()
+            fixed_lines = []
+            for line in lines:
+                if (line.startswith("ATOM") or line.startswith("HETATM")) and len(line) > 21:
+                    if line[21] == " ":
+                        line = line[:21] + "A" + line[22:]
+                fixed_lines.append(line)
+            tmp = tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=False)
+            tmp.writelines(fixed_lines)
+            tmp.close()
+            pdb_data = self._alt_parse_PDB(tmp.name, input_chain_list="A")
+            os.unlink(tmp.name)
+
+        parsed_seq = pdb_data[0].get("seq", "")
+        if len(parsed_seq) != L:
+            print(f"  Warning: PDB sequence length ({len(parsed_seq)}) != "
+                  f"input sequence length ({L}). Using PDB sequence.")
+            seq = parsed_seq
+            L = len(seq)
+            ddg_full = np.full((L, N_AA), np.nan, dtype=np.float32)
+
+        self._last_parsed_seq = seq
+
+        # Prepare features using tied_featurize (same as ThermoMPNN uses internally)
+        # We need to build a batch for the ProteinMPNN model
+        device = self._device
+        batch = self._tied_featurize(
+            [pdb_data[0]], device,
+            chain_dict=None,
+        )
+        # batch returns: X, S, mask, lengths, chain_M, chain_encoding_all,
+        #                chain_list_list, visible_list_list, masked_list_list,
+        #                masked_chain_length_list_list, chain_M_pos,
+        #                omit_AA_mask, residue_idx, dihedral_mask,
+        #                tied_pos_list_of_lists_list, pssm_coef, pssm_bias,
+        #                pssm_log_odds_all, bias_by_res_all, tied_beta
+        X, S, mask, lengths, chain_M = batch[0], batch[1], batch[2], batch[3], batch[4]
+        chain_encoding_all = batch[5]
+        residue_idx = batch[12]
+        # chain_M_pos: which positions are designable (1=designable)
+        # For scoring we want all positions, so set to all 1s
+        chain_M_pos = torch.ones_like(chain_M)
+
+        # Run ProteinMPNN forward to get per-position log probabilities
+        with torch.no_grad():
+            log_probs = self._model(
+                X, S, mask, chain_M * chain_M_pos,
+                residue_idx, chain_encoding_all,
+            )
+            # log_probs shape: (1, L_padded, 21) — 21 classes (20 AA + X)
+            log_probs = log_probs[0, :L, :20].cpu().numpy()  # (L, 20)
+
+        # ProteinMPNN uses its own AA ordering. Map to our AA_LIST order.
+        # ProteinMPNN alphabet: A R N D C Q E G H I L K M F P S T W Y V
+        MPNN_ORDER = "ARNDCQEGHILKMFPSTWYV"
+        mpnn_to_ours = [MPNN_ORDER.index(aa) for aa in AA_LIST]
+
+        log_probs_reordered = log_probs[:, mpnn_to_ours]  # (L, 20) in AA_LIST order
+
+        # Compute pseudo-DDG: log P(wt) - log P(mut)
+        for i in range(L):
+            wt_aa = seq[i]
+            wt_idx = AA_TO_IDX.get(wt_aa)
+            if wt_idx is None:
+                continue
+            log_p_wt = log_probs_reordered[i, wt_idx]
+            for j, aa in enumerate(AA_LIST):
+                if aa == wt_aa:
+                    continue
+                log_p_mut = log_probs_reordered[i, j]
+                ddg_full[i, j] = log_p_wt - log_p_mut  # positive = destabilizing
+
+        # Compress to L x 19 (drop WT column at each row)
+        ddg_matrix = np.zeros((L, N_AA - 1), dtype=np.float32)
+        for i in range(L):
+            wt_idx = AA_TO_IDX.get(seq[i])
+            if wt_idx is not None:
+                row = ddg_full[i]
+                ddg_matrix[i] = np.concatenate([row[:wt_idx], row[wt_idx + 1:]])
+
+        return ddg_matrix
+
+
 # ==========================================================================
 # SCORER REGISTRY
 # ==========================================================================
@@ -489,6 +700,7 @@ class ThermoMPNNScorer(DDGScorer):
 SCORER_REGISTRY: Dict[str, type] = {
     "esm1v": ESM1vScorer,
     "thermompnn": ThermoMPNNScorer,
+    "proteinmpnn": ProteinMPNNScorer,
 }
 
 
