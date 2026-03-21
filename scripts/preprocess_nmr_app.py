@@ -147,25 +147,41 @@ def extract_plddt_from_pdb(pdb_path: str) -> list:
 
 
 def fold_with_esmfold(sequence: str, output_pdb: str):
-    """Fold a sequence with ESMFold and save as PDB."""
+    """Fold a sequence with ESMFold and save as PDB.
+
+    Tries Meta fair-esm first, falls back to HuggingFace transformers
+    (which doesn't require openfold).
+    """
     import torch
-    import esm
 
     # Lazy-load model (cached after first call)
     if not hasattr(fold_with_esmfold, "_model"):
-        print("  Loading ESMFold model (first call, may take a minute)...")
-        fold_with_esmfold._model = esm.pretrained.esmfold_v1()
-        fold_with_esmfold._model = fold_with_esmfold._model.eval()
-        if torch.cuda.is_available():
-            fold_with_esmfold._model = fold_with_esmfold._model.cuda()
+        print("  Loading ESMFold model (first call, may take a minute)...",
+              flush=True)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        try:
+            import esm
+            model = esm.pretrained.esmfold_v1().eval()
+            print("  Using Meta fair-esm backend", flush=True)
+        except Exception:
+            from transformers import EsmForProteinFolding
+            model = EsmForProteinFolding.from_pretrained(
+                "facebook/esmfold_v1").eval()
+            print("  Using HuggingFace transformers backend (no openfold needed)",
+                  flush=True)
+        if device == "cuda":
+            model = model.cuda()
+            if hasattr(model, "esm"):
+                model.esm = model.esm.half()
+        fold_with_esmfold._model = model
 
     model = fold_with_esmfold._model
 
     with torch.no_grad():
-        output = model.infer_pdb(sequence)
+        pdb_str = model.infer_pdb(sequence)
 
     with open(output_pdb, "w") as f:
-        f.write(output)
+        f.write(pdb_str)
 
 
 def create_protein_dir(pid: str, data: dict, output_dir: Path,
