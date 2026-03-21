@@ -171,6 +171,65 @@ DATASETS = {
         bfactor_only=True,
         has_plddt=True,
     ),
+    # NMR-APP designed proteins (Muntener et al. 2026, Hiller lab)
+    "nmr_app_hetNOE": Dataset(
+        name="nmr_app_hetNOE",
+        display_name="NMR-APP (1$-$hetNOE)",
+        data_dir=f"{CLUSTER.project_dir}/data/nmr_app_processed",
+        robustness_dir=f"{CLUSTER.project_dir}/data/nmr_app_robustness",
+        analysis_dir=f"{CLUSTER.project_dir}/data/nmr_app_analysis/hetNOE",
+        dataset_type="designed",
+        available_targets=["bfactor"],
+        available_scorers=["thermompnn", "proteinmpnn"],
+        n_proteins_approx=9,
+        bfactor_only=True,
+        has_plddt=True,
+    ),
+    "nmr_app_R1": Dataset(
+        name="nmr_app_R1",
+        display_name="NMR-APP (R$_1$)",
+        data_dir=f"{CLUSTER.project_dir}/data/nmr_app_processed",
+        robustness_dir=f"{CLUSTER.project_dir}/data/nmr_app_robustness",
+        analysis_dir=f"{CLUSTER.project_dir}/data/nmr_app_analysis/R1",
+        dataset_type="designed",
+        available_targets=["bfactor"],
+        available_scorers=["thermompnn", "proteinmpnn"],
+        n_proteins_approx=9,
+        bfactor_only=True,
+        has_plddt=True,
+        bfactor_suffix="_R1.tsv",
+        virtual=True,
+    ),
+    "nmr_app_R2": Dataset(
+        name="nmr_app_R2",
+        display_name="NMR-APP (R$_2$)",
+        data_dir=f"{CLUSTER.project_dir}/data/nmr_app_processed",
+        robustness_dir=f"{CLUSTER.project_dir}/data/nmr_app_robustness",
+        analysis_dir=f"{CLUSTER.project_dir}/data/nmr_app_analysis/R2",
+        dataset_type="designed",
+        available_targets=["bfactor"],
+        available_scorers=["thermompnn", "proteinmpnn"],
+        n_proteins_approx=9,
+        bfactor_only=True,
+        has_plddt=True,
+        bfactor_suffix="_R2.tsv",
+        virtual=True,
+    ),
+    "nmr_app_R2R1": Dataset(
+        name="nmr_app_R2R1",
+        display_name="NMR-APP (R$_2$/R$_1$)",
+        data_dir=f"{CLUSTER.project_dir}/data/nmr_app_processed",
+        robustness_dir=f"{CLUSTER.project_dir}/data/nmr_app_robustness",
+        analysis_dir=f"{CLUSTER.project_dir}/data/nmr_app_analysis/R2R1",
+        dataset_type="designed",
+        available_targets=["bfactor"],
+        available_scorers=["thermompnn", "proteinmpnn"],
+        n_proteins_approx=9,
+        bfactor_only=True,
+        has_plddt=True,
+        bfactor_suffix="_R2R1.tsv",
+        virtual=True,
+    ),
     # Virtual datasets: same proteins as relaxdb but alternative NMR targets
     "relaxdb_R2": Dataset(
         name="relaxdb_R2",
@@ -270,7 +329,8 @@ ALL_RUNS_WITH_VIRTUAL = CORRELATION_RUNS + [
     for scorer in ds.available_scorers
     for target in ds.available_targets
 ]
-ALL_MULTI_DDG_WITH_VIRTUAL = [r for r in ALL_RUNS_WITH_VIRTUAL if r.scorer == "thermompnn"]
+ALL_MULTI_DDG_WITH_VIRTUAL = [r for r in ALL_RUNS_WITH_VIRTUAL
+                              if r.scorer in ("thermompnn", "proteinmpnn")]
 
 
 # ============================================================================

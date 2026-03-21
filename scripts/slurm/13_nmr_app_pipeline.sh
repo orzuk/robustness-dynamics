@@ -168,7 +168,7 @@ for SCORER in thermompnn proteinmpnn; do
         --atlas_dir ${NMR_APP_DIR} \\
         --robustness_dir ${NMR_APP_ROB} \\
         --scorer \${SCORER} \\
-        --output_dir ${NMR_APP_ANALYSIS}/hetNOE_\${SCORER} \\
+        --output_dir ${NMR_APP_ANALYSIS}/hetNOE \\
         --target bfactor \\
         --no_dssp
 done
@@ -182,7 +182,7 @@ for SUFFIX in _R2.tsv _R2R1.tsv _R1.tsv; do
             --atlas_dir ${NMR_APP_DIR} \\
             --robustness_dir ${NMR_APP_ROB} \\
             --scorer \${SCORER} \\
-            --output_dir ${NMR_APP_ANALYSIS}/\${TAG}_\${SCORER} \\
+            --output_dir ${NMR_APP_ANALYSIS}/\${TAG} \\
             --target bfactor \\
             --bfactor_suffix \${SUFFIX} \\
             --no_dssp
@@ -190,13 +190,15 @@ for SUFFIX in _R2.tsv _R2R1.tsv _R1.tsv; do
 done
 
 # Multi-DDG regression on hetNOE
-echo "=== Multi-DDG regression (hetNOE) ==="
-python scripts/multi_ddg_regression.py \\
-    --atlas_dir ${NMR_APP_DIR} \\
-    --robustness_dir ${NMR_APP_ROB} \\
-    --scorer thermompnn \\
-    --target bfactor \\
-    --output_dir ${NMR_APP_ANALYSIS}/multi_ddg_hetNOE
+for SCORER in thermompnn proteinmpnn; do
+    echo "=== Multi-DDG regression (hetNOE, \${SCORER}) ==="
+    python scripts/multi_ddg_regression.py \\
+        --atlas_dir ${NMR_APP_DIR} \\
+        --robustness_dir ${NMR_APP_ROB} \\
+        --scorer \${SCORER} \\
+        --target bfactor \\
+        --output_dir ${NMR_APP_ANALYSIS}/multi_ddg_hetNOE
+done
 
 echo "Stage 3 done — \$(date)"
 EOF
