@@ -654,10 +654,13 @@ class ProteinMPNNScorer(DDGScorer):
         chain_M_pos = torch.ones_like(chain_M)
 
         # Run ProteinMPNN forward to get per-position log probabilities
+        # randn is used for decoding noise; zeros for deterministic scoring
+        randn = torch.zeros(X.shape[0], X.shape[1], device=X.device)
         with torch.no_grad():
             log_probs = self._model(
                 X, S, mask, chain_M * chain_M_pos,
                 residue_idx, chain_encoding_all,
+                randn,
             )
             # log_probs shape: (1, L_padded, 21) — 21 classes (20 AA + X)
             log_probs = log_probs[0, :L, :20].cpu().numpy()  # (L, 20)
