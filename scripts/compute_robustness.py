@@ -657,11 +657,13 @@ class ProteinMPNNScorer(DDGScorer):
         # randn is used for decoding noise; zeros for deterministic scoring
         randn = torch.zeros(X.shape[0], X.shape[1], device=X.device)
         with torch.no_grad():
-            log_probs = self._model(
+            result = self._model(
                 X, S, mask, chain_M * chain_M_pos,
                 residue_idx, chain_encoding_all,
                 randn,
             )
+            # forward() may return a tuple (log_probs, ...) or tensor
+            log_probs = result[0] if isinstance(result, tuple) else result
             # log_probs shape: (1, L_padded, 21) — 21 classes (20 AA + X)
             log_probs = log_probs[0, :L, :20].cpu().numpy()  # (L, 20)
 
