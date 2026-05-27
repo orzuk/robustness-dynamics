@@ -618,13 +618,17 @@ def _generate_table3_body(results: dict, columns, label: str, caption: str,
         "ols_mean_ddg": (r"OLS mean $\Delta\Delta G$", 1),
         "ols_mean_abs_ddg": (r"OLS mean$|\Delta\Delta G|$", 1),
         "ols_sasa": ("OLS SASA", 1),
+        "ols_packing": ("OLS WCN", 1),
         "ols_plddt": ("OLS pLDDT", 1),
         "ols_std_plddt": (r"OLS std $+$ pLDDT", 2),
+        "ols_std_packing": (r"OLS std $+$ WCN", 2),
         "ridge_20ddg": (r"Ridge: 20 $\Delta\Delta G$", 20),
         "ridge_nonlinear_only": ("Ridge: 4 NL only", 4),
         "ridge_20ddg_nonlinear": (r"Ridge: 20 $\Delta\Delta G$ + 4 NL", 24),
         "ridge_20ddg_plddt": (r"Ridge: 20 $\Delta\Delta G$ + pLDDT", 21),
         "ridge_20ddg_nonlinear_plddt": (r"Ridge: 20 $\Delta\Delta G$ + NL + pLDDT", 25),
+        "ridge_20ddg_nonlinear_packing": (r"Ridge: 20 $\Delta\Delta G$ + NL + WCN", 25),
+        "ridge_20ddg_nonlinear_plddt_packing": (r"Ridge: 20 $\Delta\Delta G$ + NL + pLDDT + WCN", 26),
     }
 
     # Collect all model values for highlighting
@@ -659,8 +663,8 @@ def _generate_table3_body(results: dict, columns, label: str, caption: str,
             row.append(model_grid[m_idx][col_idx][0])
         lines.append(" & ".join(row) + r" \\")
 
-        # Add midrule after baselines
-        if model_key == "ols_std_plddt":
+        # Add midrule after scalar baselines (last OLS row before Ridge).
+        if model_key == "ols_std_packing":
             lines.append(r"\midrule")
 
     # Delta R² row

@@ -381,20 +381,26 @@ TABLE1_PREDICTORS = ["esm1v", "thermompnn", "proteinmpnn", "plddt", "sasa", "pac
 TABLE2_SS_STRATA = ["H", "E", "C"]
 TABLE2_BURIAL_STRATA = ["core", "boundary", "surface"]
 
-# Table 3 models for multi-DDG comparison (in display order)
+# Table 3 models for multi-DDG comparison (in display order).
+# WCN-aware rows added 2026-05 as the R1 packing control — let the per-AA
+# Ridge prove (or fail to prove) it carries information beyond local packing.
 TABLE3_MODEL_ORDER = [
     # Scalar baselines
     "ols_std_ddg",       # OLS on std(DDG) - same as our primary index
     "ols_mean_abs_ddg",
     "ols_sasa",
+    "ols_packing",       # OLS on WCN — R1 baseline
     "ols_plddt",
     "ols_std_plddt",     # OLS on std(DDG) + pLDDT
+    "ols_std_packing",   # OLS on std(DDG) + WCN — head-to-head with std_plddt
     # Ridge models
     "ridge_20ddg",
     "ridge_nonlinear_only",
     "ridge_20ddg_nonlinear",
     "ridge_20ddg_plddt",
     "ridge_20ddg_nonlinear_plddt",
+    "ridge_20ddg_nonlinear_packing",        # 20 AA + 4 NL + WCN
+    "ridge_20ddg_nonlinear_plddt_packing",  # all baselines together
 ]
 
 # Alternative robustness scalar measures (for Table 3 top half)

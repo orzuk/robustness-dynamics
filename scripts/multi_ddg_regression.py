@@ -164,6 +164,58 @@ def compute_sasa(pdb_path: str, chain_id: Optional[str] = None) -> Optional[np.n
         return None
 
 
+def compute_packing(pdb_path: str, chain_id: Optional[str] = None) -> Optional[np.ndarray]:
+    """Compute per-residue local packing density (WCN) using mdtraj.
+
+    Returns a 1D array of weighted contact numbers (WCN) for each residue:
+    WCN_i = Σ 1/d² over all other Cβ atoms (Cα for glycine), distances in Å.
+
+    Standard local-packing measure from the protein-evolution-rate literature
+    (Yeh et al. 2014; Echave 2015). Added 2026-05 as the R1-requested
+    structural baseline for the multi-ΔΔG Ridge — answers "does the per-AA
+    pattern carry information beyond local packing density?"
+
+    Mirrors compute_sasa(): same chain-filtering convention so the output
+    length matches the chain selected by `chain_id`. Returns None on any
+    failure path (caller treats as "no packing available").
+    """
+    try:
+        import mdtraj
+        traj = mdtraj.load(pdb_path)
+        top = traj.topology
+        # Per residue: Cβ if present, else Cα (glycine). Skip residues with
+        # neither (waters, ligands).
+        sel = []
+        keep_res = []
+        for res in top.residues:
+            atom_by_name = {a.name: a.index for a in res.atoms}
+            idx = atom_by_name.get("CB", atom_by_name.get("CA"))
+            if idx is not None:
+                sel.append(idx)
+                keep_res.append(res.index)
+        if len(sel) < 2:
+            return None
+        xyz_nm = traj.xyz[0, sel]
+        d_nm = np.linalg.norm(xyz_nm[:, None] - xyz_nm[None, :], axis=-1)
+        np.fill_diagonal(d_nm, np.inf)
+        d_ang = d_nm * 10.0
+        wcn_full = (1.0 / np.where(d_ang > 0, d_ang ** 2, np.inf)).sum(axis=1)
+        # wcn_full is indexed by *kept residues*. If chain filtering is
+        # requested, subset to residues whose chain index matches.
+        if chain_id is not None:
+            chain_idx = _get_chain_index(top, chain_id)
+            chain_res_set = {
+                r.index for r in top.residues if r.chain.index == chain_idx
+            }
+            mask = np.array([ri in chain_res_set for ri in keep_res])
+            if mask.sum() == 0:
+                return None
+            return wcn_full[mask]
+        return wcn_full
+    except Exception:
+        return None
+
+
 def _get_chain_index(topology, chain_id: str) -> int:
     """Get mdtraj chain index from PDB chain letter."""
     for chain in topology.chains:
@@ -312,6 +364,9 @@ def build_dataset(
         sasa = compute_sasa(str(pdb_files[0]), chain_id=chain_id) if pdb_files else None
         if sasa is not None and len(sasa) != L:
             sasa = None
+        packing = compute_packing(str(pdb_files[0]), chain_id=chain_id) if pdb_files else None
+        if packing is not None and len(packing) != L:
+            packing = None
 
         # mean_abs_ddg, mean_ddg, and std_ddg from robustness TSV
         rob_tsv = Path(robustness_dir) / scorer / f"{pid}_robustness.tsv"
@@ -388,6 +443,7 @@ def build_dataset(
             "target": y_valid,
             "plddt": _zscore(plddt[valid]) if plddt is not None else None,
             "sasa": _zscore(sasa[valid]) if sasa is not None else None,
+            "packing": _zscore(packing[valid]) if packing is not None else None,
             "mean_abs_ddg": _zscore(mean_abs_ddg[valid]) if mean_abs_ddg is not None else None,
             "mean_ddg": _zscore(mean_ddg[valid]) if mean_ddg is not None else None,
             "std_ddg": _zscore(std_ddg[valid]) if std_ddg is not None else None,
@@ -500,6 +556,36 @@ def run_cv_regression(
             return None
         return entry["sasa"].reshape(-1, 1)
 
+    # --- WCN-aware extractors (R1 packing control for the multi-DDG Ridge) ---
+    def extract_packing(entry):
+        if entry.get("packing") is None:
+            return None
+        return entry["packing"].reshape(-1, 1)
+
+    def extract_std_packing(entry):
+        """sd(ΔΔG) + WCN: head-to-head with ols_std_plddt."""
+        if entry["std_ddg"] is None or entry.get("packing") is None:
+            return None
+        return np.column_stack([entry["std_ddg"], entry["packing"]])
+
+    def extract_20ddg_nonlinear_packing(entry):
+        """20 AA + 4 NL + WCN: the headline test of whether the per-AA pattern
+        carries information beyond local packing density (R1 control)."""
+        nl = entry.get("nonlinear_4")
+        if nl is None or entry.get("packing") is None:
+            return None
+        return np.column_stack([entry["ddg_20"], nl, entry["packing"]])
+
+    def extract_20ddg_nonlinear_plddt_packing(entry):
+        """Full baseline stack: 20 AA + 4 NL + pLDDT + WCN.
+        The 'everything-controlled' model — residual Ridge coefficients are
+        what the per-AA mutational profile adds beyond all standard
+        structural baselines."""
+        nl = entry.get("nonlinear_4")
+        if nl is None or entry["plddt"] is None or entry.get("packing") is None:
+            return None
+        return np.column_stack([entry["ddg_20"], nl, entry["plddt"], entry["packing"]])
+
     models = {
         "ridge_20ddg": {
             "extractor": extract_20ddg,
@@ -572,6 +658,31 @@ def run_cv_regression(
             "use_ridge": False,
             "feature_names": ["SASA"],
             "n_features": 1,
+        },
+        # --- WCN-aware models (R1 packing control) ---
+        "ols_packing": {
+            "extractor": extract_packing,
+            "use_ridge": False,
+            "feature_names": ["WCN"],
+            "n_features": 1,
+        },
+        "ols_std_packing": {
+            "extractor": extract_std_packing,
+            "use_ridge": False,
+            "feature_names": ["std_ddg", "WCN"],
+            "n_features": 2,
+        },
+        "ridge_20ddg_nonlinear_packing": {
+            "extractor": extract_20ddg_nonlinear_packing,
+            "use_ridge": True,
+            "feature_names": list(AA_LIST) + nonlinear_names + ["WCN"],
+            "n_features": 25,
+        },
+        "ridge_20ddg_nonlinear_plddt_packing": {
+            "extractor": extract_20ddg_nonlinear_plddt_packing,
+            "use_ridge": True,
+            "feature_names": list(AA_LIST) + nonlinear_names + ["pLDDT", "WCN"],
+            "n_features": 26,
         },
     }
 
