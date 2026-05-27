@@ -444,6 +444,61 @@ def compute_sasa_from_pdb(pdb_path: str) -> Optional[pd.DataFrame]:
         os.unlink(clean_path)
 
 
+def compute_packing_from_pdb(pdb_path: str) -> Optional[pd.DataFrame]:
+    """Compute per-residue local packing density from a PDB file.
+
+    Returns DataFrame with columns:
+        position, cn6, cn8, wcn
+    where neighbours are counted between Cβ atoms (Cα used for glycine):
+        cn6 = number of Cβ atoms within 6 Å
+        cn8 = number of Cβ atoms within 8 Å
+        wcn = Σ 1/d² (Å⁻²) over all other Cβ atoms (no cutoff)
+
+    Standard local-packing measures from the protein-evolution-rate
+    literature (Franzosa & Xia 2009; Yeh et al. 2014; Echave 2015).
+    Provides the direct packing-density control requested by reviewers
+    of the Genetics submission: both sd(ΔΔG) and RMSF depend on local
+    packing, so any claim that the index carries information beyond
+    packing must show that this control does not remove the signal.
+
+    Independent of DSSP and SASA; uses the same _clean_pdb_for_mdtraj()
+    cleanup path as compute_sasa_from_pdb() to handle altlocs and
+    duplicate atoms.
+    """
+    clean_path = _clean_pdb_for_mdtraj(pdb_path)
+    try:
+        import mdtraj
+        traj = mdtraj.load(clean_path)
+        top = traj.topology
+        # Per amino-acid residue: pick Cβ if present, else Cα (glycine).
+        # Skip non-AA residues (waters, ligands, modified HETATM that lack both).
+        cb_indices = []
+        for res in top.residues:
+            atom_by_name = {a.name: a.index for a in res.atoms}
+            idx = atom_by_name.get("CB", atom_by_name.get("CA"))
+            if idx is not None:
+                cb_indices.append(idx)
+        if len(cb_indices) < 2:
+            return None
+        xyz_nm = traj.xyz[0, cb_indices]                                     # (L, 3) nm
+        d_nm = np.linalg.norm(xyz_nm[:, None] - xyz_nm[None, :], axis=-1)
+        np.fill_diagonal(d_nm, np.inf)
+        d_ang = d_nm * 10.0                                                   # to Å
+        cn6 = (d_ang < 6.0).sum(axis=1).astype(np.int32)
+        cn8 = (d_ang < 8.0).sum(axis=1).astype(np.int32)
+        wcn = (1.0 / np.where(d_ang > 0, d_ang ** 2, np.inf)).sum(axis=1)
+        return pd.DataFrame({
+            "position": range(1, len(cn6) + 1),
+            "cn6": cn6,
+            "cn8": cn8,
+            "wcn": wcn,
+        })
+    except Exception:
+        return None
+    finally:
+        os.unlink(clean_path)
+
+
 # ==========================================================================
 # HELPER: PARTIAL CORRELATION
 # ==========================================================================
@@ -520,6 +575,14 @@ class PerProteinResult:
     pval_sasa_rmsf: float = np.nan
     r2_sasa_rmsf: float = np.nan
 
+    # Packing (WCN) vs RMSF (local-density baseline; see compute_packing_from_pdb)
+    rho_packing_rmsf: float = np.nan
+    pval_packing_rmsf: float = np.nan
+    r2_packing_rmsf: float = np.nan
+    # Secondary packing measures (raw contact numbers)
+    rho_cn8_rmsf: float = np.nan
+    rho_cn6_rmsf: float = np.nan
+
     # Robustness vs pLDDT (are they correlated?)
     rho_robustness_plddt: float = np.nan
 
@@ -529,12 +592,19 @@ class PerProteinResult:
     # Robustness vs SASA (are they correlated?)
     rho_robustness_sasa: float = np.nan
 
+    # Robustness vs packing (collinearity check — expected: strong)
+    rho_robustness_packing: float = np.nan
+
     # Partial correlation: robustness vs RMSF, controlling for SASA
     rho_robustness_rmsf_partial_sasa: float = np.nan
     pval_robustness_rmsf_partial_sasa: float = np.nan
 
     # Partial correlation: robustness vs RMSF, controlling for pLDDT
     rho_robustness_rmsf_partial_plddt: float = np.nan
+
+    # Partial correlation: robustness vs RMSF, controlling for packing (WCN)
+    rho_robustness_rmsf_partial_packing: float = np.nan
+    pval_robustness_rmsf_partial_packing: float = np.nan
 
     # Multiple regression: RMSF ~ robustness + pLDDT
     r2_joint: float = np.nan
@@ -545,6 +615,10 @@ class PerProteinResult:
     # Multiple regression: RMSF ~ robustness + SASA
     r2_joint_sasa: float = np.nan
     delta_r2_over_sasa: float = np.nan  # r2_joint_sasa - r2_sasa
+
+    # Multiple regression: RMSF ~ robustness + packing (WCN)
+    r2_joint_packing: float = np.nan
+    delta_r2_over_packing: float = np.nan  # r2_joint_packing - r2_packing
 
     # Multiple regression with best robustness combo: RMSF ~ mean_abs_ddg + frac_destab + pLDDT
     r2_joint_multi_rob: float = np.nan
@@ -572,11 +646,20 @@ class PerProteinResult:
     rho_sasa_bfactor: float = np.nan
     r2_sasa_bfactor: float = np.nan
 
+    # Packing (WCN) vs B-factor
+    rho_packing_bfactor: float = np.nan
+    r2_packing_bfactor: float = np.nan
+    rho_cn8_bfactor: float = np.nan
+    rho_cn6_bfactor: float = np.nan
+
     # Partial correlation: robustness vs B-factor, controlling for SASA
     rho_robustness_bfactor_partial_sasa: float = np.nan
 
     # Partial correlation: robustness vs B-factor, controlling for pLDDT
     rho_robustness_bfactor_partial_plddt: float = np.nan
+
+    # Partial correlation: robustness vs B-factor, controlling for packing
+    rho_robustness_bfactor_partial_packing: float = np.nan
 
     # Multiple regression: B-factor ~ robustness + pLDDT
     r2_bfactor_joint_plddt: float = np.nan
@@ -585,6 +668,10 @@ class PerProteinResult:
     # Multiple regression: B-factor ~ robustness + SASA
     r2_bfactor_joint_sasa: float = np.nan
     delta_r2_bfactor_over_sasa: float = np.nan
+
+    # Multiple regression: B-factor ~ robustness + packing
+    r2_bfactor_joint_packing: float = np.nan
+    delta_r2_bfactor_over_packing: float = np.nan
 
     # === CONSERVATION AS COVARIATE ===
     # Conservation vs dynamics (baseline)
@@ -625,6 +712,7 @@ def correlate_single_protein(
     scorer: str,
     sasa_df: Optional[pd.DataFrame] = None,
     conservation_df: Optional[pd.DataFrame] = None,
+    packing_df: Optional[pd.DataFrame] = None,
     rob_col: str = "mean_abs_ddg",
 ) -> Optional[PerProteinResult]:
     """Compute all correlations for a single protein."""
@@ -652,6 +740,14 @@ def correlate_single_protein(
         merged = merged.merge(sasa_df[["position", "sasa"]], on="position", how="left")
     else:
         merged["sasa"] = np.nan
+
+    if packing_df is not None:
+        merged = merged.merge(packing_df[["position", "cn6", "cn8", "wcn"]],
+                              on="position", how="left")
+    else:
+        merged["cn6"] = np.nan
+        merged["cn8"] = np.nan
+        merged["wcn"] = np.nan
 
     if conservation_df is not None:
         merged = merged.merge(conservation_df[["position", "conservation"]],
@@ -759,6 +855,43 @@ def correlate_single_protein(
         r2_rob_sasa = LinearRegression().fit(X_rob_sasa, y_s).score(X_rob_sasa, y_s)
         result.r2_joint_sasa = r2_rob_sasa
         result.delta_r2_over_sasa = r2_rob_sasa - r2_sasa_only
+
+    # --- Packing (WCN) vs RMSF (local-density baseline) ---
+    packing_valid = core.dropna(subset=["wcn"])
+    if len(packing_valid) >= 10:
+        rho, pval = scipy_stats.spearmanr(packing_valid["wcn"], packing_valid["rmsf_avg"])
+        result.rho_packing_rmsf = rho
+        result.pval_packing_rmsf = pval
+        r, _ = scipy_stats.pearsonr(packing_valid["wcn"], packing_valid["rmsf_avg"])
+        result.r2_packing_rmsf = r ** 2
+        # CN at 8 and 6 Å (secondary)
+        rho_cn8, _ = scipy_stats.spearmanr(packing_valid["cn8"], packing_valid["rmsf_avg"])
+        result.rho_cn8_rmsf = rho_cn8
+        rho_cn6, _ = scipy_stats.spearmanr(packing_valid["cn6"], packing_valid["rmsf_avg"])
+        result.rho_cn6_rmsf = rho_cn6
+
+        # Robustness vs WCN (collinearity check)
+        rho, _ = scipy_stats.spearmanr(packing_valid[rob_col], packing_valid["wcn"])
+        result.rho_robustness_packing = rho
+
+        # Partial: robustness vs RMSF | WCN — the headline control demanded by R1
+        pr, pval_pr = partial_spearman(
+            packing_valid[rob_col].values,
+            packing_valid["rmsf_avg"].values,
+            packing_valid["wcn"].values,
+        )
+        result.rho_robustness_rmsf_partial_packing = pr
+        result.pval_robustness_rmsf_partial_packing = pval_pr
+
+        # Joint regression: RMSF ~ robustness + WCN
+        from sklearn.linear_model import LinearRegression
+        y_p = packing_valid["rmsf_avg"].values
+        X_p_only = packing_valid[["wcn"]].values
+        X_rob_p = packing_valid[[rob_col, "wcn"]].values
+        r2_p_only = LinearRegression().fit(X_p_only, y_p).score(X_p_only, y_p)
+        r2_rob_p = LinearRegression().fit(X_rob_p, y_p).score(X_rob_p, y_p)
+        result.r2_joint_packing = r2_rob_p
+        result.delta_r2_over_packing = r2_rob_p - r2_p_only
 
     # --- Multiple regression: RMSF ~ robustness + pLDDT ---
     joint_valid = core.dropna(subset=["plddt"])
@@ -912,6 +1045,36 @@ def correlate_single_protein(
             result.r2_bfactor_joint_sasa = r2_j
             result.delta_r2_bfactor_over_sasa = dr2
 
+        # --- Packing (WCN) vs B-factor ---
+        bf_pack = bfac_target.dropna(subset=["wcn"])
+        if len(bf_pack) >= 10:
+            rho, _ = scipy_stats.spearmanr(bf_pack["wcn"], bf_pack["bfactor"])
+            result.rho_packing_bfactor = rho
+            r, _ = scipy_stats.pearsonr(bf_pack["wcn"], bf_pack["bfactor"])
+            result.r2_packing_bfactor = r ** 2
+            rho_cn8, _ = scipy_stats.spearmanr(bf_pack["cn8"], bf_pack["bfactor"])
+            result.rho_cn8_bfactor = rho_cn8
+            rho_cn6, _ = scipy_stats.spearmanr(bf_pack["cn6"], bf_pack["bfactor"])
+            result.rho_cn6_bfactor = rho_cn6
+
+            # Partial: robustness vs B-factor | WCN
+            pr, _ = partial_spearman(
+                bf_pack[rob_col].values,
+                bf_pack["bfactor"].values,
+                bf_pack["wcn"].values,
+            )
+            result.rho_robustness_bfactor_partial_packing = pr
+
+            # Regression: B-factor ~ robustness + WCN
+            y_bf = bf_pack["bfactor"].values
+            _, r2_j, dr2 = regression_delta_r2(
+                bf_pack[["wcn"]].values,
+                bf_pack[[rob_col, "wcn"]].values,
+                y_bf,
+            )
+            result.r2_bfactor_joint_packing = r2_j
+            result.delta_r2_bfactor_over_packing = dr2
+
         # --- Conservation vs B-factor ---
         bf_cons = bfac_target.dropna(subset=["conservation"])
         if len(bf_cons) >= 10:
@@ -981,6 +1144,16 @@ class PooledResult:
     pooled_r2_joint_sasa: float = np.nan
     pooled_delta_r2_over_sasa: float = np.nan
 
+    # Pooled packing (WCN; local-density baseline)
+    pooled_rho_packing_rmsf: float = np.nan
+    pooled_r2_packing_rmsf: float = np.nan
+    pooled_rho_cn8_rmsf: float = np.nan
+    pooled_rho_cn6_rmsf: float = np.nan
+    pooled_rho_robustness_packing: float = np.nan
+    pooled_rho_robustness_rmsf_partial_packing: float = np.nan
+    pooled_r2_joint_packing: float = np.nan
+    pooled_delta_r2_over_packing: float = np.nan
+
     # Pooled B-factor (experimental dynamics baseline — predicting RMSF)
     pooled_rho_bfactor_rmsf: float = np.nan
     pooled_r2_bfactor_rmsf: float = np.nan
@@ -1009,6 +1182,15 @@ class PooledResult:
     pooled_r2_bfactor_joint_sasa: float = np.nan
     pooled_delta_r2_bfactor_over_sasa: float = np.nan
 
+    # Pooled packing → B-factor
+    pooled_rho_packing_bfactor: float = np.nan
+    pooled_r2_packing_bfactor: float = np.nan
+    pooled_rho_cn8_bfactor: float = np.nan
+    pooled_rho_cn6_bfactor: float = np.nan
+    pooled_rho_robustness_bfactor_partial_packing: float = np.nan
+    pooled_r2_bfactor_joint_packing: float = np.nan
+    pooled_delta_r2_bfactor_over_packing: float = np.nan
+
     # Distribution of per-protein correlations
     median_rho_robustness_rmsf: float = np.nan
     mean_rho_robustness_rmsf: float = np.nan
@@ -1020,6 +1202,10 @@ class PooledResult:
     median_rho_partial_plddt: float = np.nan
     median_rho_bfactor_rmsf: float = np.nan
     median_rho_robustness_bfactor: float = np.nan
+    # Packing per-protein medians
+    median_rho_packing_rmsf: float = np.nan
+    median_rho_cn8_rmsf: float = np.nan
+    median_rho_partial_packing: float = np.nan
 
     # B-factor-as-target per-protein medians
     median_rho_robustness_bfactor_target: float = np.nan
@@ -1027,6 +1213,8 @@ class PooledResult:
     median_rho_sasa_bfactor: float = np.nan
     median_rho_robustness_bfactor_partial_sasa: float = np.nan
     median_rho_robustness_bfactor_partial_plddt: float = np.nan
+    median_rho_packing_bfactor: float = np.nan
+    median_rho_robustness_bfactor_partial_packing: float = np.nan
 
     # === CONSERVATION AS COVARIATE (pooled) ===
     pooled_rho_conservation_rmsf: float = np.nan
@@ -1113,6 +1301,14 @@ def run_pooled_analysis(
     result.median_rho_robustness_bfactor_partial_sasa = _median_attr("rho_robustness_bfactor_partial_sasa")
     result.median_rho_robustness_bfactor_partial_plddt = _median_attr("rho_robustness_bfactor_partial_plddt")
 
+    # Packing per-protein medians (RMSF target)
+    result.median_rho_packing_rmsf = _median_attr("rho_packing_rmsf")
+    result.median_rho_cn8_rmsf = _median_attr("rho_cn8_rmsf")
+    result.median_rho_partial_packing = _median_attr("rho_robustness_rmsf_partial_packing")
+    # Packing per-protein medians (B-factor target)
+    result.median_rho_packing_bfactor = _median_attr("rho_packing_bfactor")
+    result.median_rho_robustness_bfactor_partial_packing = _median_attr("rho_robustness_bfactor_partial_packing")
+
     # Conservation per-protein medians
     result.median_rho_conservation_rmsf = _median_attr("rho_conservation_rmsf")
     result.median_rho_conservation_bfactor = _median_attr("rho_conservation_bfactor")
@@ -1150,7 +1346,8 @@ def run_pooled_analysis(
                 if resp_col in df.columns:
                     df[resp_col] = np.log1p(np.clip(df[resp_col].values, 0, None))
         # Z-score within protein to remove protein-level differences
-        for col in [rob_col, "rmsf_avg", "plddt", "sasa", "bfactor", "conservation"]:
+        for col in [rob_col, "rmsf_avg", "plddt", "sasa", "bfactor", "conservation",
+                    "wcn", "cn8", "cn6"]:
             if col in df.columns:
                 mu, sigma = df[col].mean(), df[col].std()
                 if sigma > 0:
@@ -1236,6 +1433,50 @@ def run_pooled_analysis(
             )
             result.pooled_r2_joint_sasa = r2_j
             result.pooled_delta_r2_over_sasa = dr2
+
+    # Pooled packing (WCN) analysis — the R1 control
+    if "wcn_z" in pooled.columns:
+        valid_p = pooled.dropna(subset=["wcn_z", "rmsf_avg_z"])
+        if len(valid_p) >= 20:
+            rho, _ = scipy_stats.spearmanr(valid_p["wcn_z"], valid_p["rmsf_avg_z"])
+            result.pooled_rho_packing_rmsf = rho
+            r, _ = scipy_stats.pearsonr(valid_p["wcn_z"], valid_p["rmsf_avg_z"])
+            result.pooled_r2_packing_rmsf = r ** 2
+
+        if "cn8_z" in pooled.columns:
+            valid_cn8 = pooled.dropna(subset=["cn8_z", "rmsf_avg_z"])
+            if len(valid_cn8) >= 20:
+                rho, _ = scipy_stats.spearmanr(valid_cn8["cn8_z"], valid_cn8["rmsf_avg_z"])
+                result.pooled_rho_cn8_rmsf = rho
+        if "cn6_z" in pooled.columns:
+            valid_cn6 = pooled.dropna(subset=["cn6_z", "rmsf_avg_z"])
+            if len(valid_cn6) >= 20:
+                rho, _ = scipy_stats.spearmanr(valid_cn6["cn6_z"], valid_cn6["rmsf_avg_z"])
+                result.pooled_rho_cn6_rmsf = rho
+
+        # Robustness vs WCN (collinearity)
+        valid_rp = pooled.dropna(subset=[rob_col_z, "wcn_z"])
+        if len(valid_rp) >= 20:
+            rho, _ = scipy_stats.spearmanr(valid_rp[rob_col_z], valid_rp["wcn_z"])
+            result.pooled_rho_robustness_packing = rho
+
+        # Pooled partial: robustness vs RMSF | WCN
+        valid_all_p = pooled.dropna(subset=[rob_col_z, "wcn_z", "rmsf_avg_z"])
+        if len(valid_all_p) >= 20:
+            pr, _ = partial_spearman(
+                valid_all_p[rob_col_z].values,
+                valid_all_p["rmsf_avg_z"].values,
+                valid_all_p["wcn_z"].values,
+            )
+            result.pooled_rho_robustness_rmsf_partial_packing = pr
+
+            _, r2_j, dr2 = regression_delta_r2(
+                valid_all_p[["wcn_z"]].values,
+                valid_all_p[[rob_col_z, "wcn_z"]].values,
+                valid_all_p["rmsf_avg_z"].values,
+            )
+            result.pooled_r2_joint_packing = r2_j
+            result.pooled_delta_r2_over_packing = dr2
 
     # Pooled B-factor analysis (predicting RMSF from B-factor)
     if "bfactor_z" in pooled.columns:
@@ -1338,6 +1579,42 @@ def run_pooled_analysis(
                 )
                 result.pooled_r2_bfactor_joint_sasa = r2_j
                 result.pooled_delta_r2_bfactor_over_sasa = dr2
+
+        # Packing → B-factor (R1 control)
+        if "wcn_z" in pooled.columns:
+            valid_wb = pooled.dropna(subset=["wcn_z", "bfactor_z"])
+            if len(valid_wb) >= 20:
+                rho, _ = scipy_stats.spearmanr(valid_wb["wcn_z"], valid_wb["bfactor_z"])
+                result.pooled_rho_packing_bfactor = rho
+                r, _ = scipy_stats.pearsonr(valid_wb["wcn_z"], valid_wb["bfactor_z"])
+                result.pooled_r2_packing_bfactor = r ** 2
+            if "cn8_z" in pooled.columns:
+                valid_c8b = pooled.dropna(subset=["cn8_z", "bfactor_z"])
+                if len(valid_c8b) >= 20:
+                    rho, _ = scipy_stats.spearmanr(valid_c8b["cn8_z"], valid_c8b["bfactor_z"])
+                    result.pooled_rho_cn8_bfactor = rho
+            if "cn6_z" in pooled.columns:
+                valid_c6b = pooled.dropna(subset=["cn6_z", "bfactor_z"])
+                if len(valid_c6b) >= 20:
+                    rho, _ = scipy_stats.spearmanr(valid_c6b["cn6_z"], valid_c6b["bfactor_z"])
+                    result.pooled_rho_cn6_bfactor = rho
+
+            # Partial + joint regression
+            valid_rwb = pooled.dropna(subset=[rob_col_z, "wcn_z", "bfactor_z"])
+            if len(valid_rwb) >= 20:
+                pr, _ = partial_spearman(
+                    valid_rwb[rob_col_z].values,
+                    valid_rwb["bfactor_z"].values,
+                    valid_rwb["wcn_z"].values,
+                )
+                result.pooled_rho_robustness_bfactor_partial_packing = pr
+                _, r2_j, dr2 = regression_delta_r2(
+                    valid_rwb[["wcn_z"]].values,
+                    valid_rwb[[rob_col_z, "wcn_z"]].values,
+                    valid_rwb["bfactor_z"].values,
+                )
+                result.pooled_r2_bfactor_joint_packing = r2_j
+                result.pooled_delta_r2_bfactor_over_packing = dr2
 
         # Conservation → B-factor
         if "conservation_z" in pooled.columns:
@@ -1674,6 +1951,10 @@ def main():
     parser.add_argument("--no_sasa", action="store_true",
                         help="Skip SASA computation (avoids mdtraj crashes "
                              "on raw PDB files with overlapping atoms)")
+    parser.add_argument("--no_packing", action="store_true",
+                        help="Skip local packing computation (CN6, CN8, WCN). "
+                             "Packing is the canonical R1 control: both sd(ΔΔG) "
+                             "and RMSF depend on local contact density.")
     parser.add_argument("--max_proteins", type=int, default=0,
                         help="Limit number of proteins (0=all, for testing)")
     parser.add_argument("--max_seq_length", type=int, default=0,
@@ -1721,6 +2002,7 @@ def main():
             make_figures=not args.no_figures,
             use_dssp=not args.no_dssp,
             compute_sasa=not args.no_sasa,
+            compute_packing=not args.no_packing,
             max_proteins=args.max_proteins,
             max_seq_length=args.max_seq_length,
             robustness_col=args.robustness_col,
@@ -1740,6 +2022,7 @@ def run_analysis_for_scorer(
     make_figures: bool = True,
     use_dssp: bool = True,
     compute_sasa: bool = True,
+    compute_packing: bool = True,
     max_proteins: int = 0,
     max_seq_length: int = 0,
     robustness_col: str = "std_ddg",
@@ -1828,15 +2111,25 @@ def run_analysis_for_scorer(
             rmsf_df = bfactor_df.rename(columns={"bfactor": "rmsf_avg"}).copy()
         global_metrics = load_robustness_global(robustness_dir, scorer, pid)
 
-        # Compute SASA from PDB (uniform burial baseline for all proteins)
+        # Compute SASA + packing (CN6, CN8, WCN) from PDB. Both are cheap,
+        # mdtraj-based, uniform across natural and designed proteins, and
+        # reuse the same _clean_pdb_for_mdtraj() altloc/dup-atom path.
         sasa_df = None
-        if compute_sasa:
+        packing_df = None
+        if compute_sasa or compute_packing:
             pdb_files = list(Path(protein_dir).glob("*.pdb"))
             if pdb_files:
-                try:
-                    sasa_df = compute_sasa_from_pdb(str(pdb_files[0]))
-                except Exception as e:
-                    print(f"  Warning: SASA computation failed for {pid}: {e}")
+                pdb_path = str(pdb_files[0])
+                if compute_sasa:
+                    try:
+                        sasa_df = compute_sasa_from_pdb(pdb_path)
+                    except Exception as e:
+                        print(f"  Warning: SASA computation failed for {pid}: {e}")
+                if compute_packing:
+                    try:
+                        packing_df = compute_packing_from_pdb(pdb_path)
+                    except Exception as e:
+                        print(f"  Warning: packing computation failed for {pid}: {e}")
 
         # Load conservation scores (if available)
         conservation_df = load_conservation(protein_dir, consurf_dir=consurf_dir,
@@ -1845,7 +2138,8 @@ def run_analysis_for_scorer(
         # Correlate
         result = correlate_single_protein(
             pid, rob_df, rmsf_df, plddt_df, bfactor_df, global_metrics, scorer,
-            sasa_df=sasa_df, conservation_df=conservation_df, rob_col=rob_col,
+            sasa_df=sasa_df, conservation_df=conservation_df,
+            packing_df=packing_df, rob_col=rob_col,
         )
         if result is None:
             n_skip_too_short += 1
@@ -1867,6 +2161,9 @@ def run_analysis_for_scorer(
             merged = merged.merge(bfactor_df[["position", "bfactor"]], on="position", how="left")
         if sasa_df is not None:
             merged = merged.merge(sasa_df[["position", "sasa"]], on="position", how="left")
+        if packing_df is not None:
+            merged = merged.merge(packing_df[["position", "cn6", "cn8", "wcn"]],
+                                  on="position", how="left")
         if conservation_df is not None:
             merged = merged.merge(conservation_df[["position", "conservation"]],
                                   on="position", how="left")

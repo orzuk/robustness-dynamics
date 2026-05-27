@@ -90,6 +90,15 @@ def collect_correlation_run(run) -> dict:
             "pooled_r2_joint_sasa": _get("pooled_r2_joint_sasa"),
             "pooled_partial_rho_sasa": _get("pooled_rho_robustness_rmsf_partial_sasa"),
             "pooled_partial_rho_plddt": _get("pooled_rho_robustness_rmsf_partial_plddt"),
+            # Packing (WCN) — R1 control
+            "pooled_rho_packing": _get("pooled_rho_packing_rmsf"),
+            "pooled_r2_packing": _get("pooled_r2_packing_rmsf"),
+            "pooled_rho_cn8": _get("pooled_rho_cn8_rmsf"),
+            "pooled_rho_cn6": _get("pooled_rho_cn6_rmsf"),
+            "pooled_rho_robustness_packing": _get("pooled_rho_robustness_packing"),
+            "pooled_partial_rho_packing": _get("pooled_rho_robustness_rmsf_partial_packing"),
+            "pooled_r2_joint_packing": _get("pooled_r2_joint_packing"),
+            "pooled_delta_r2_over_packing": _get("pooled_delta_r2_over_packing"),
             # Conservation as covariate
             "pooled_rho_conservation": _get("pooled_rho_conservation_rmsf"),
             "pooled_r2_conservation": _get("pooled_r2_conservation_rmsf"),
@@ -104,6 +113,9 @@ def collect_correlation_run(run) -> dict:
             "median_rho_sasa": _get("median_rho_sasa_rmsf"),
             "median_rho_partial_sasa": _get("median_rho_partial_sasa"),
             "median_rho_partial_plddt": _get("median_rho_partial_plddt"),
+            "median_rho_packing": _get("median_rho_packing_rmsf"),
+            "median_rho_cn8": _get("median_rho_cn8_rmsf"),
+            "median_rho_partial_packing": _get("median_rho_partial_packing"),
             "frac_robustness_beats_plddt": _get("frac_robustness_beats_plddt"),
             "median_rho_conservation": _get("median_rho_conservation_rmsf"),
             "median_rho_robustness_conservation": _get("median_rho_robustness_conservation"),
@@ -122,6 +134,15 @@ def collect_correlation_run(run) -> dict:
             "pooled_r2_joint_sasa": _get("pooled_r2_bfactor_joint_sasa"),
             "pooled_partial_rho_sasa": _get("pooled_rho_robustness_bfactor_partial_sasa"),
             "pooled_partial_rho_plddt": _get("pooled_rho_robustness_bfactor_partial_plddt"),
+            # Packing (WCN) — R1 control
+            "pooled_rho_packing": _get("pooled_rho_packing_bfactor"),
+            "pooled_r2_packing": _get("pooled_r2_packing_bfactor"),
+            "pooled_rho_cn8": _get("pooled_rho_cn8_bfactor"),
+            "pooled_rho_cn6": _get("pooled_rho_cn6_bfactor"),
+            "pooled_rho_robustness_packing": _get("pooled_rho_robustness_packing"),
+            "pooled_partial_rho_packing": _get("pooled_rho_robustness_bfactor_partial_packing"),
+            "pooled_r2_joint_packing": _get("pooled_r2_bfactor_joint_packing"),
+            "pooled_delta_r2_over_packing": _get("pooled_delta_r2_bfactor_over_packing"),
             # Conservation as covariate
             "pooled_rho_conservation": _get("pooled_rho_conservation_bfactor"),
             "pooled_r2_conservation": _get("pooled_r2_conservation_bfactor"),
@@ -136,6 +157,8 @@ def collect_correlation_run(run) -> dict:
             "median_rho_sasa": _get("median_rho_sasa_bfactor"),
             "median_rho_partial_sasa": _get("median_rho_robustness_bfactor_partial_sasa"),
             "median_rho_partial_plddt": _get("median_rho_robustness_bfactor_partial_plddt"),
+            "median_rho_packing": _get("median_rho_packing_bfactor"),
+            "median_rho_partial_packing": _get("median_rho_robustness_bfactor_partial_packing"),
             "frac_robustness_beats_plddt": _get("frac_robustness_beats_plddt_bfactor"),
             "median_rho_conservation": _get("median_rho_conservation_bfactor"),
             "median_rho_robustness_conservation": _get("median_rho_robustness_conservation"),
@@ -154,6 +177,15 @@ def collect_correlation_run(run) -> dict:
             "pooled_r2_joint_sasa": _get("pooled_r2_joint_sasa"),
             "pooled_partial_rho_sasa": _get("pooled_rho_robustness_rmsf_partial_sasa"),
             "pooled_partial_rho_plddt": _get("pooled_rho_robustness_rmsf_partial_plddt"),
+            # Packing (WCN) — R1 control
+            "pooled_rho_packing": _get("pooled_rho_packing_rmsf"),
+            "pooled_r2_packing": _get("pooled_r2_packing_rmsf"),
+            "pooled_rho_cn8": _get("pooled_rho_cn8_rmsf"),
+            "pooled_rho_cn6": _get("pooled_rho_cn6_rmsf"),
+            "pooled_rho_robustness_packing": _get("pooled_rho_robustness_packing"),
+            "pooled_partial_rho_packing": _get("pooled_rho_robustness_rmsf_partial_packing"),
+            "pooled_r2_joint_packing": _get("pooled_r2_joint_packing"),
+            "pooled_delta_r2_over_packing": _get("pooled_delta_r2_over_packing"),
             # Conservation as covariate
             "pooled_rho_conservation": _get("pooled_rho_conservation_rmsf"),
             "pooled_r2_conservation": _get("pooled_r2_conservation_rmsf"),
@@ -168,6 +200,9 @@ def collect_correlation_run(run) -> dict:
             "median_rho_sasa": _get("median_rho_sasa_rmsf"),
             "median_rho_partial_sasa": _get("median_rho_partial_sasa"),
             "median_rho_partial_plddt": _get("median_rho_partial_plddt"),
+            "median_rho_packing": _get("median_rho_packing_rmsf"),
+            "median_rho_cn8": _get("median_rho_cn8_rmsf"),
+            "median_rho_partial_packing": _get("median_rho_partial_packing"),
             "frac_robustness_beats_plddt": _get("frac_robustness_beats_plddt"),
             "median_rho_conservation": _get("median_rho_conservation_rmsf"),
             "median_rho_robustness_conservation": _get("median_rho_robustness_conservation"),
@@ -180,12 +215,17 @@ def collect_correlation_run(run) -> dict:
     r2_joint_plddt = corr.get("pooled_r2_joint_plddt")
     r2_joint_sasa = corr.get("pooled_r2_joint_sasa")
     r2_sasa = corr.get("pooled_r2_sasa")
+    r2_joint_packing = corr.get("pooled_r2_joint_packing")
+    r2_packing = corr.get("pooled_r2_packing")
 
     corr["delta_r2_over_plddt"] = (
         round(r2_joint_plddt - r2_plddt, 4) if r2_joint_plddt and r2_plddt else None
     )
     corr["delta_r2_over_sasa"] = (
         round(r2_joint_sasa - r2_sasa, 4) if r2_joint_sasa and r2_sasa else None
+    )
+    corr["delta_r2_over_packing"] = (
+        round(r2_joint_packing - r2_packing, 4) if r2_joint_packing and r2_packing else None
     )
 
     # Suppress conservation fields for designed-protein datasets

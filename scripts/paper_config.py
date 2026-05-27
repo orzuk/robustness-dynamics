@@ -362,7 +362,10 @@ NMR_COLUMNS = [
 TABLE1_COLUMNS_ALL = TABLE1_COLUMNS + NMR_COLUMNS
 
 # Table 1 predictor rows
-TABLE1_PREDICTORS = ["esm1v", "thermompnn", "proteinmpnn", "plddt", "sasa"]
+# "packing" = WCN (weighted contact number); added as the canonical local-density
+# baseline in response to the Genetics review (R1: "the direct test, comparing
+# sd(ΔΔG) against a packing descriptor such as contact number, is absent").
+TABLE1_PREDICTORS = ["esm1v", "thermompnn", "proteinmpnn", "plddt", "sasa", "packing"]
 
 # Table 2 strata
 TABLE2_SS_STRATA = ["H", "E", "C"]
