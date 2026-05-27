@@ -61,6 +61,15 @@ class ClusterPaths:
         return f"{self.project_dir}/data/ConSurf"
 
     @property
+    def megascale_dir(self):
+        """MegaScale (Tsuboyama 2023, Dataset1). Expected layout (symlink OK):
+          {megascale_dir}/Tsuboyama2023_Dataset1.csv  -- ~1.2 GB per-variant ΔΔG
+        Diagnostic inventory produced by preprocess_megascale.py.
+        Used (when populated) for the experimental-ΔΔG × B-factor analysis
+        proposed as Tier-2 #7 of the genetics-revision plan."""
+        return f"{self.project_dir}/data/megascale"
+
+    @property
     def scripts_dir(self):
         return f"{self.repo_dir}/scripts"
 
