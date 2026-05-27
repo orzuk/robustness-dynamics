@@ -2281,6 +2281,12 @@ def run_analysis_for_scorer(
     if not np.isnan(pooled.median_rho_partial_plddt):
         print(f"Per-protein median partial rho (rob|pLDDT):  "
               f"{pooled.median_rho_partial_plddt:.3f}")
+    if not np.isnan(pooled.median_rho_packing_rmsf):
+        print(f"Per-protein median rho (WCN vs RMSF):        "
+              f"{pooled.median_rho_packing_rmsf:.3f}")
+    if not np.isnan(pooled.median_rho_partial_packing):
+        print(f"Per-protein median partial rho (rob|WCN):    "
+              f"{pooled.median_rho_partial_packing:.3f}")
     print(f"Frac where |rho_robustness| > |rho_pLDDT|:   "
           f"{pooled.frac_robustness_beats_plddt:.3f}")
 
@@ -2317,6 +2323,17 @@ def run_analysis_for_scorer(
     print(f"Pooled R^2 (rob+SASA):             {pooled.pooled_r2_joint_sasa:.3f}")
     print(f"Delta R^2 (rob+pLDDT - pLDDT):     {pooled.pooled_delta_r2:.3f}")
     print(f"Delta R^2 (rob+SASA - SASA):       {pooled.pooled_delta_r2_over_sasa:.3f}")
+    if not np.isnan(pooled.pooled_rho_packing_rmsf):
+        print(f"Pooled rho (WCN vs RMSF):         {pooled.pooled_rho_packing_rmsf:.3f}")
+        if not np.isnan(pooled.pooled_rho_cn8_rmsf):
+            print(f"Pooled rho (CN8 vs RMSF):         {pooled.pooled_rho_cn8_rmsf:.3f}")
+        print(f"Pooled rho (rob vs WCN):          {pooled.pooled_rho_robustness_packing:.3f}")
+        print(f"Pooled partial rho (rob|WCN):     "
+              f"{pooled.pooled_rho_robustness_rmsf_partial_packing:.3f}  "
+              "<-- R1 control")
+        print(f"Pooled R^2 (WCN):                  {pooled.pooled_r2_packing_rmsf:.3f}")
+        print(f"Pooled R^2 (rob+WCN):              {pooled.pooled_r2_joint_packing:.3f}")
+        print(f"Delta R^2 (rob+WCN - WCN):         {pooled.pooled_delta_r2_over_packing:.3f}")
     if not np.isnan(pooled.pooled_rho_bfactor_rmsf):
         print(f"Pooled rho (Bfactor vs RMSF):      {pooled.pooled_rho_bfactor_rmsf:.3f}")
         print(f"Pooled rho (rob vs Bfactor):       {pooled.pooled_rho_robustness_bfactor:.3f}")
@@ -2354,6 +2371,14 @@ def run_analysis_for_scorer(
         print(f"Delta R^2 over pLDDT (Bf target):    {pooled.pooled_delta_r2_bfactor_over_plddt:.3f}")
         print(f"Pooled R^2 (rob+SASA → Bfactor):    {pooled.pooled_r2_bfactor_joint_sasa:.3f}")
         print(f"Delta R^2 over SASA (Bf target):     {pooled.pooled_delta_r2_bfactor_over_sasa:.3f}")
+        if not np.isnan(pooled.pooled_rho_packing_bfactor):
+            print(f"Pooled rho (WCN → Bfactor):         {pooled.pooled_rho_packing_bfactor:.3f}")
+            print(f"Pooled R^2 (WCN → Bfactor):         {pooled.pooled_r2_packing_bfactor:.3f}")
+            print(f"Pooled partial (rob|WCN → Bf):      "
+                  f"{pooled.pooled_rho_robustness_bfactor_partial_packing:.3f}  "
+                  "<-- R1 control")
+            print(f"Pooled R^2 (rob+WCN → Bfactor):     {pooled.pooled_r2_bfactor_joint_packing:.3f}")
+            print(f"Delta R^2 over WCN (Bf target):      {pooled.pooled_delta_r2_bfactor_over_packing:.3f}")
 
     if strat_ss:
         print(f"\nBy secondary structure (RMSF target):")
