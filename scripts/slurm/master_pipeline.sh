@@ -416,6 +416,21 @@ if should_run 5; then
             --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/correlate_robustness_dynamics.py --atlas_dir ${S2EXP_DATA} --robustness_dir ${S2EXP_ROB} --scorer ${SCORER} --output_dir ${S2EXP_ANALYSIS} --target bfactor'"
     done
 
+    # MegaScale (experimental ΔΔG × experimental B-factor — R2 circularity control)
+    MEGASCALE_DATA="${PROJECT_DIR}/data/megascale_processed"
+    MEGASCALE_ROB="${PROJECT_DIR}/data/megascale_robustness"
+    MEGASCALE_ANALYSIS="${PROJECT_DIR}/data/megascale_analysis"
+    if [[ -d "${MEGASCALE_DATA}/proteins" ]] && \
+       [[ $(ls "${MEGASCALE_DATA}/proteins" 2>/dev/null | wc -l) -gt 0 ]]; then
+        echo -n "  MegaScale experimental: "
+        submit_job ${ACCOUNT} --partition=${CPU_PARTITION} --time=02:00:00 --mem=16G --cpus-per-task=4 \
+            --job-name=corr_mega --output="${LOG_DIR}/corr_megascale_%j.out" \
+            $DEP \
+            --wrap="bash -c 'source ${VENV_DIR}/bin/activate && cd ${REPO_DIR} && python scripts/correlate_robustness_dynamics.py --atlas_dir ${MEGASCALE_DATA} --robustness_dir ${MEGASCALE_ROB} --scorer experimental --output_dir ${MEGASCALE_ANALYSIS} --target bfactor --no_dssp'"
+    else
+        echo "  MegaScale: not preprocessed yet — skipping (run preprocess_megascale_natural.py first)"
+    fi
+
     advance_stage
     echo ""
 fi

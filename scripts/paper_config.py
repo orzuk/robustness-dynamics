@@ -151,6 +151,25 @@ DATASETS = {
         has_plddt=True,  # pLDDT from ESMFold predictions
         exclude_proteins=PDB_DESIGNS_EXCLUDE,
     ),
+    # MegaScale (Tsuboyama 2023) natural-protein subset, with EXPERIMENTAL
+    # per-position sd(ΔΔG) (no ML in the loop) paired with deposited PDB
+    # B-factors. The point: directly answers Genetics referee 2's
+    # ML-circularity charge — both axes are experimental observables.
+    # Populated by scripts/preprocess_megascale_natural.py; "experimental"
+    # is the lone "scorer" (it's the proteolysis-assay ΔΔG, not a model).
+    "megascale": Dataset(
+        name="megascale",
+        display_name="MegaScale (exp.)",
+        data_dir=f"{CLUSTER.project_dir}/data/megascale_processed",
+        robustness_dir=f"{CLUSTER.project_dir}/data/megascale_robustness",
+        analysis_dir=f"{CLUSTER.project_dir}/data/megascale_analysis",
+        dataset_type="natural",
+        available_targets=["bfactor"],
+        available_scorers=["experimental"],
+        n_proteins_approx=0,    # set by preprocess summary
+        bfactor_only=True,
+        has_plddt=False,        # no AF2 pLDDT (could add via ESMFold later)
+    ),
     "rci_s2": Dataset(
         name="rci_s2",
         display_name="NMR (RCI-S$^2$)",
