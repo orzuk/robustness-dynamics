@@ -22,17 +22,27 @@ from pathlib import Path
 # ============================================================================
 # CLUSTER PATHS
 # ============================================================================
-# Override via environment variables:
-#   ROBUSTNESS_PROJECT_DIR  (default: /sci/labs/orzuk/orzuk/projects/ProteinStability)
-#   ROBUSTNESS_REPO_DIR     (default: /sci/labs/orzuk/orzuk/github/robustness-dynamics)
+# Override via environment variables. Either of the two name pairs works:
+#   ROBUSTNESS_PROJECT_DIR or PROJECT_DIR  (default: /sci/labs/orzuk/.../ProteinStability)
+#   ROBUSTNESS_REPO_DIR    or REPO_DIR     (default: /sci/labs/orzuk/.../robustness-dynamics)
+# `scripts/slurm/config.sh` exports the short names (PROJECT_DIR, REPO_DIR);
+# the ROBUSTNESS_*-prefixed versions are accepted for explicit Python use.
 
 _DEFAULT_PROJECT = "/sci/labs/orzuk/orzuk/projects/ProteinStability"
 _DEFAULT_REPO = "/sci/labs/orzuk/orzuk/github/robustness-dynamics"
 
 @dataclass
 class ClusterPaths:
-    project_dir: str = os.environ.get("ROBUSTNESS_PROJECT_DIR", _DEFAULT_PROJECT)
-    repo_dir: str = os.environ.get("ROBUSTNESS_REPO_DIR", _DEFAULT_REPO)
+    project_dir: str = (
+        os.environ.get("ROBUSTNESS_PROJECT_DIR")
+        or os.environ.get("PROJECT_DIR")
+        or _DEFAULT_PROJECT
+    )
+    repo_dir: str = (
+        os.environ.get("ROBUSTNESS_REPO_DIR")
+        or os.environ.get("REPO_DIR")
+        or _DEFAULT_REPO
+    )
 
     @property
     def venv(self):
