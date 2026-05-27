@@ -415,6 +415,12 @@ def compute_burial(pdb_path: str) -> Optional[List[float]]:
         os.unlink(clean_path)
 
 
+_PROTEIN_AA_3 = {
+    "ALA", "CYS", "ASP", "GLU", "PHE", "GLY", "HIS", "ILE", "LYS", "LEU",
+    "MET", "ASN", "PRO", "GLN", "ARG", "SER", "THR", "VAL", "TRP", "TYR",
+}
+
+
 def compute_sasa_from_pdb(pdb_path: str) -> Optional[pd.DataFrame]:
     """Compute per-residue SASA from a PDB file using mdtraj Shrake-Rupley.
 
@@ -422,22 +428,31 @@ def compute_sasa_from_pdb(pdb_path: str) -> Optional[pd.DataFrame]:
     a uniform burial baseline for all protein types (natural and designed).
     Uses a cleaned PDB to avoid C-level crashes from overlapping atoms.
 
-    Returns DataFrame with columns: position, sasa (in nm^2).
+    Returns DataFrame with columns: position, sasa (in nm^2). The 'position'
+    column is the PDB residue sequence number (resSeq) so it merges cleanly
+    with rob/Bfactor/pLDDT TSVs that use real PDB numbering (MegaScale).
+    For ATLAS, resSeq is already 1..L sequential, so the output is identical
+    to the legacy behaviour. Non-amino-acid residues (waters, ligands,
+    modified HETATM lacking a standard one-letter code) are skipped.
     """
     clean_path = _clean_pdb_for_mdtraj(pdb_path)
     try:
         import mdtraj
+        from collections import OrderedDict
         traj = mdtraj.load(clean_path)
-        # Compute per-atom SASA, then sum by residue
-        sasa_per_atom = mdtraj.shrake_rupley(traj, mode='atom')  # shape (1, n_atoms)
-        sasa_per_residue = np.zeros(traj.topology.n_residues)
+        sasa_per_atom = mdtraj.shrake_rupley(traj, mode='atom')  # (1, n_atoms)
+        sasa_by_resseq: "OrderedDict[int, float]" = OrderedDict()
         for atom in traj.topology.atoms:
-            sasa_per_residue[atom.residue.index] += sasa_per_atom[0, atom.index]
-        result = pd.DataFrame({
-            "position": range(1, len(sasa_per_residue) + 1),
-            "sasa": sasa_per_residue,
+            if atom.residue.name not in _PROTEIN_AA_3:
+                continue
+            rs = atom.residue.resSeq
+            sasa_by_resseq[rs] = sasa_by_resseq.get(rs, 0.0) + sasa_per_atom[0, atom.index]
+        if not sasa_by_resseq:
+            return None
+        return pd.DataFrame({
+            "position": list(sasa_by_resseq.keys()),
+            "sasa":     list(sasa_by_resseq.values()),
         })
-        return result
     except Exception:
         return None
     finally:
@@ -471,13 +486,20 @@ def compute_packing_from_pdb(pdb_path: str) -> Optional[pd.DataFrame]:
         traj = mdtraj.load(clean_path)
         top = traj.topology
         # Per amino-acid residue: pick Cβ if present, else Cα (glycine).
-        # Skip non-AA residues (waters, ligands, modified HETATM that lack both).
+        # Skip non-AA residues so the output aligns with the rob/Bfactor TSVs
+        # which only cover amino acids. Position uses PDB resSeq (matches the
+        # MegaScale PDB numbering convention; for ATLAS it is 1..L sequential
+        # so output is identical to the legacy behaviour).
         cb_indices = []
+        res_seqs = []
         for res in top.residues:
+            if res.name not in _PROTEIN_AA_3:
+                continue
             atom_by_name = {a.name: a.index for a in res.atoms}
             idx = atom_by_name.get("CB", atom_by_name.get("CA"))
             if idx is not None:
                 cb_indices.append(idx)
+                res_seqs.append(res.resSeq)
         if len(cb_indices) < 2:
             return None
         xyz_nm = traj.xyz[0, cb_indices]                                     # (L, 3) nm
@@ -488,7 +510,7 @@ def compute_packing_from_pdb(pdb_path: str) -> Optional[pd.DataFrame]:
         cn8 = (d_ang < 8.0).sum(axis=1).astype(np.int32)
         wcn = (1.0 / np.where(d_ang > 0, d_ang ** 2, np.inf)).sum(axis=1)
         return pd.DataFrame({
-            "position": range(1, len(cn6) + 1),
+            "position": res_seqs,
             "cn6": cn6,
             "cn8": cn8,
             "wcn": wcn,

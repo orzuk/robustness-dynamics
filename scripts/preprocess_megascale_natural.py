@@ -494,8 +494,17 @@ def main():
 
         # 6. Write per-protein outputs.
         protein_outdir.mkdir(parents=True, exist_ok=True)
-        # PDB file: copy from cache
-        (protein_outdir / f"{prot_id}.pdb").write_bytes(pdb_path.read_bytes())
+        # PDB file: filter to the analyzed chain (default A). Multi-chain
+        # PDBs from RCSB would otherwise cause SASA/packing to aggregate
+        # across chains, producing wrong sums at shared resSeqs.
+        out_pdb = protein_outdir / f"{prot_id}.pdb"
+        with open(pdb_path) as src, open(out_pdb, "w") as dst:
+            for line in src:
+                if line.startswith(("ATOM", "HETATM")):
+                    if line[21] == args.chain:
+                        dst.write(line)
+                else:
+                    dst.write(line)
         # B-factor TSV
         bf_out.to_csv(protein_outdir / f"{prot_id}_Bfactor.tsv",
                       sep="\t", index=False)
