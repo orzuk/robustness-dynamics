@@ -16,6 +16,12 @@
 export REPO_DIR="/sci/labs/orzuk/orzuk/github/robustness-dynamics"
 export THERMOMPNN_DIR="/sci/labs/orzuk/orzuk/github/ThermoMPNN"
 
+# --- FrustraMPNN (Beining 2026): SEPARATE env — torch-geometric deps conflict
+#     with the ThermoMPNN env, so do NOT reuse VENV_DIR here. See
+#     0b_setup_frustrampnn_env.sh and FRUSTRAMPNN_AND_PACKING_RUN_PLAN.md ---
+export FRUSTRAMPNN_ENV="${PROJECT_DIR:-/sci/labs/orzuk/orzuk/projects/ProteinStability}/envs/frustrampnn"
+export FRUSTRAMPNN_CHECKPOINT="${PROJECT_DIR:-/sci/labs/orzuk/orzuk/projects/ProteinStability}/models/frustrampnn/checkpoint.ckpt"
+
 # --- Project directory (data, results, logs — outside the git repo) ---
 export PROJECT_DIR="/sci/labs/orzuk/orzuk/projects/ProteinStability"
 
