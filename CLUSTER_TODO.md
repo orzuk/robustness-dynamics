@@ -36,10 +36,14 @@ Mechanistic reframe + complementary predictor. Does NOT fix circularity.
 - [ ] **VERIFY:** ρ(F_native, dynamics) vs ρ(sd(ΔΔG), dynamics) head-to-head; partial
       vs packing; sign should be NEGATIVE vs RMSF; check R2/R2R1 (slow-exchange) win.
 
-## C. MegaScale experimental ΔΔG × B-factor  (Tier-2 #7 — the real circularity-breaker)
-Already scaffolded (dataset `megascale`, scorer `experimental`, preprocess scripts).
-- [ ] populate `$PROJECT_DIR/data/megascale`, then include in the `--force` sweep
-- [ ] (ask Claude for the dedicated mini-plan if wanted)
+## C. MegaScale experimental ΔΔG  (INVENTORY-FIRST gate — target is B-factor, NOT RMSF)
+MegaScale has no MD → dynamics target is crystal B-factor, only for natural proteins
+with an X-ray structure. Count usable proteins BEFORE investing. (Plan Track C.)
+- [ ] **C0** run the 2 inventory commands (no GPU, minutes): `preprocess_megascale.py`
+      + `megascale_atlas_overlap.py`
+- [ ] report back: Route-2 ATLAS∩MegaScale overlap count; Route-1 #natural proteins ≥100 variants
+- [ ] GO/NO-GO: overlap ≳30–40 → RMSF version; else Route-1 ≥20 → B-factor version; else shelve
+- [ ] (HELD until GO) code unification + full preprocess→correlate→table run
 
 ---
 

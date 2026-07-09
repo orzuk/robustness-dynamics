@@ -176,11 +176,51 @@ python scripts/run_all_analyses.py --postprocess-only
 
 ---
 
-## Anything else worth running while you're at it
-- **MegaScale experimental-ΔΔG × B-factor** (Tier-2 #7, the real circularity-breaker)
-  is already scaffolded (`preprocess_megascale_natural.py`, dataset `megascale`,
-  scorer `experimental`, commits `a17f98b`/`f46ed50`). Populate `$PROJECT_DIR/data/megascale`
-  then include it in the `run_all_analyses.py --force` sweep. Separate mini-plan if wanted.
+## TRACK C — MegaScale experimental ΔΔG  (INVENTORY-FIRST — GO/NO-GO gate)
+
+**Why gated:** MegaScale has **no MD**, so the dynamics target is crystallographic
+**B-factor, not RMSF** — and only for the natural proteins that also have an X-ray
+structure. Coverage is also sparse (no 20-D Ridge). So before investing, *count the
+usable proteins*. This is the anti-circularity check (experimental ΔΔG, not model
+output), but it's a **supporting** result on B-factor, not an RMSF headline.
+
+Everything below C0 (the full preprocess → correlate pipeline, and the code
+unification of the experimental ΔΔG source into the shared robustness/regression
+path) is **HELD** until the inventory numbers clear the thresholds.
+
+### C0. Inventory — run these two only (no GPU, minutes, login node w/ the CSV)
+```bash
+cd $REPO_DIR && source scripts/slurm/config.sh && source $VENV_DIR/bin/activate
+MEGA_CSV=$PROJECT_DIR/data/megascale/Tsuboyama2023_Dataset1.csv   # adjust to the real filename on the cluster
+
+# Count 1 — Route 1 viability (experimental ΔΔG × B-factor):
+python scripts/preprocess_megascale.py --csv "$MEGA_CSV" \
+    --output_dir $PROJECT_DIR/data/megascale
+# -> writes inventory.json + variant_counts_per_protein.tsv; prints how many
+#    NATURAL proteins have >=50 / >=100 / >=500 variants.
+
+# Count 2 — Route 2 viability (experimental ΔΔG × ATLAS RMSF, the stronger target):
+ls $ATLAS_DIR/proteins > /tmp/atlas_list.txt         # ATLAS ids are dir names (e.g. 3a4z_A)
+python scripts/megascale_atlas_overlap.py \
+    --atlas_list /tmp/atlas_list.txt --megascale_csv "$MEGA_CSV"
+# -> prints the MegaScale-natural ∩ ATLAS overlap count (PDB-ID level).
+```
+
+### GO / NO-GO decision (report these numbers back to Claude)
+- **Route 2 overlap ≳ 30–40 proteins** → best case: experimental ΔΔG × **RMSF**
+  (strong version). GO, build Route 2.
+- Route 2 tiny (likely) **but Route 1 ≥ 20 natural proteins with ≥100 variants**
+  → GO, build Route 1 (experimental ΔΔG × **B-factor**, packing-controlled). Modest
+  but real anti-circularity result.
+- **Both small** → NO-GO: shelve MegaScale, rely on Track A (packing) + Track B
+  (FrustraMPNN).
+
+### HELD until GO (Claude will finish these once numbers clear)
+- Unify the experimental ΔΔG source into the shared DDG→robustness→regression path
+  (single per-position summary helper; no duplication with `compute_robustness.py`).
+- Full run: `preprocess_megascale_natural.py` (needs internet for PDB downloads) →
+  `run_all_analyses.py` picks up `megascale/experimental/bfactor` → postprocess.
+- A dedicated small results table (megascale isn't a Table-1 predictor row).
 
 ## Honesty / what I could NOT verify without the cluster
 1. The FrustraMPNN `predict()` DataFrame schema (B2 validates it). If it differs,
