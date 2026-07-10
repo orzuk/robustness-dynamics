@@ -29,10 +29,14 @@ python3 -m venv "${FRUSTRAMPNN_ENV}"
 source "${FRUSTRAMPNN_ENV}/bin/activate"
 python -m pip install --upgrade pip wheel
 
-# --- 2. Install FrustraMPNN + all extras (torch, torch-geometric, esm, numpy, pandas) ---
+# --- 2. Install FrustraMPNN FROM SOURCE (not on PyPI as of 2026-07) ---
 # If the cluster needs a CUDA-specific torch wheel, install torch FIRST, e.g.:
 #   pip install torch --index-url https://download.pytorch.org/whl/cu121
-pip install "frustrampnn[all]"
+FRUST_SRC="$(dirname "${REPO_DIR}")/frustraMPNN"   # clone next to robustness-dynamics
+if [[ ! -d "${FRUST_SRC}/.git" ]]; then
+    git clone https://github.com/schoederlab/frustraMPNN.git "${FRUST_SRC}"
+fi
+pip install -e "${FRUST_SRC}[all]" || pip install -e "${FRUST_SRC}"
 pip install pandas   # compute_frustration.py reads model.predict() DataFrame output
 
 # --- 3. Model checkpoint ---
@@ -42,12 +46,17 @@ if [[ -f "${FRUSTRAMPNN_CHECKPOINT}" ]]; then
 else
     cat <<EOF
 
-  >>> ACTION REQUIRED: download the FrustraMPNN checkpoint <<<
-  From the FrustraMPNN Zenodo record (doi 10.5281/zenodo.17978321) or the
-  repo's release, then place / symlink it at:
-      ${FRUSTRAMPNN_CHECKPOINT}
-  e.g.:
-      wget -O "${FRUSTRAMPNN_CHECKPOINT}" "<zenodo-direct-file-url>"
+  >>> ACTION REQUIRED: download the FrustraMPNN checkpoint (8.1 GB zip) <<<
+  Weights live inside full_training_runs_and_weights.zip on Zenodo
+  (doi 10.5281/zenodo.17978321). Download, unzip, and symlink the BEST model
+  (paper's best = balanced FireProt + ESM + light attention, highest
+   val_frustration_spearman) to \${FRUSTRAMPNN_CHECKPOINT}:
+      mkdir -p "\$(dirname "${FRUSTRAMPNN_CHECKPOINT}")"
+      wget -O /tmp/frust_weights.zip \\
+        "https://zenodo.org/records/17978321/files/full_training_runs_and_weights.zip?download=1"
+      unzip -o /tmp/frust_weights.zip -d "\$(dirname "${FRUSTRAMPNN_CHECKPOINT}")/"
+      find "\$(dirname "${FRUSTRAMPNN_CHECKPOINT}")" -name '*.ckpt' | sort
+      ln -sf "<best_fireprot_ESM_LT_*.ckpt>" "${FRUSTRAMPNN_CHECKPOINT}"
 
 EOF
 fi
