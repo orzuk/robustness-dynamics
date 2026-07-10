@@ -58,6 +58,50 @@ existing ρ ≈ −0.6 on MD sets.
 
 ---
 
+## 2b. ESTABLISHED BASELINES the frustration result must beat (measured 2026-07-10)
+
+The packing partial for sd(ΔΔG) is ALREADY KNOWN on both an experimental and an ML/MD set.
+Frustration's `F_native | packing` is judged against THESE numbers, not against zero.
+
+| Set | axes | ρ(sd(ΔΔG), dyn) | ρ( · \| WCN) | ΔR² over packing |
+|---|---|---|---|---|
+| **MegaScale** | exp ΔΔG × crystal B-factor (n=38) | −0.33 | **−0.05** | ~3e-6 (≈0) |
+| **ATLAS** | ThermoMPNN ΔΔG × MD-RMSF (n≈1900) | −0.50 | **−0.18** | 0.012 |
+
+**These two do NOT tell the same story, and that contrast is the interpretive spine:**
+- On the **clean experimental** set the signal **vanishes** under packing (−0.05).
+- On the **ML/MD** set it is **reduced but survives** (−0.18). The likely reason: ThermoMPNN
+  ΔΔG and RMSF are BOTH computed from the same backbone, and WCN (one contact-number
+  scalar) is an incomplete control for everything they share → the residual −0.18 is
+  plausibly **residual structure-sharing / circularity, not independent biophysics.**
+  MegaScale (experiment × experiment) is the ground truth that adjudicates: it says the
+  effect is packing.
+
+**Pre-registered honest conclusion (independent of frustration):** *any* signal beyond
+packing is small, ML-dependent, and does NOT replicate on clean experimental data.
+
+**Bars for "frustration adds something":**
+- vs experimental ground truth: `F_native | packing` on a B-factor set must clear ~**−0.05**.
+- vs the ML/MD residual: `F_native | packing` on ATLAS RMSF must clear ~**−0.18**
+  (i.e., beat sd(ΔΔG)'s own partial, not merely be nonzero).
+- If frustration only reaches ~−0.18 on ATLAS but ~−0.05 on experiment-adjacent sets, it is
+  behaving exactly like sd(ΔΔG) → no independent contribution (outcome B/C).
+
+## 2c. What FrustraMPNN is (settled from the paper, ref_reports/FrustraMPNN_summary.md)
+
+- Trained to predict **physics-computed frustration** (FrustratometeR / AWSEM labels), NOT
+  experimental ΔΔG. MegaScale + FireProt are the **structure sources**; the label is a
+  computation, "one step removed from experiment." So it is NOT circular with ThermoMPNN's
+  experimental ΔΔG target — different ground truth, shared ProteinMPNN backbone only.
+- Its 20-value profile is per-position z-scored (mean≈0, std≈1 by construction — confirmed
+  in smoke test), so the `frustrampnn` profile-std view is ~degenerate; **`frustrampnn_native`
+  (F of the WT identity) is the meaningful predictor.**
+- Design premise (their §): frustration is normalized against same-site decoys to measure
+  energetic **conflict, not contact density** → the explicit reason it *might* survive the
+  packing partial where sd(ΔΔG) does not. That premise is exactly what §2b's bars test.
+
+---
+
 ## 3. Which datasets are the strong vs weak test (decided in advance)
 
 - **Strong / primary:** ATLAS RMSF, BBFlow RMSF (MD; direct, dense dynamics signal).
@@ -95,12 +139,18 @@ individual residues post-hoc.
 
 ---
 
-## Results (fill in AFTER B5/B6 — leave blank until then)
+## Results
 
-- Sign check (§1): _pending_
-- ATLAS RMSF: ρ(frust_native) = __ , ρ(sd ΔΔG) = __ , partial|WCN = __ / __
+### Baselines (KNOWN, 2026-07-10) — see §2b
+- MegaScale exp ΔΔG × B-factor (n=38): ρ=−0.33, partial|WCN=−0.05, ΔR²=3e-6.
+- ATLAS ThermoMPNN ΔΔG × RMSF (n≈1900): ρ=−0.50, partial|WCN=−0.18, ΔR²=0.012.
+
+### Frustration (fill in AFTER B5/B6 — leave blank until then)
+- Sign check (§1): _pending (F_native vs RMSF must be NEGATIVE)_
+- ρ(frust_native, sd(ΔΔG)) per protein — redundancy check (~0.9 redundant, ~0.5 distinct): __
+- ATLAS RMSF: ρ(frust_native) = __ , partial|WCN = __  (must beat −0.18)
 - BBFlow RMSF: __
-- B-factor sets: __
+- B-factor sets (must beat −0.05): __
 - NMR (RCI-S², RelaxDB hetNOE / R2 / R2R1): __
 - Outcome (A/B/C per §2): __
 - Case studies (per §4): __
