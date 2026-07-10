@@ -62,6 +62,7 @@ import csv
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -82,6 +83,57 @@ from compute_robustness import (          # noqa: E402
 
 SCORER_MAIN = "frustrampnn"          # std(frustration profile) — sd(ΔΔG) analogue
 SCORER_NATIVE = "frustrampnn_native"  # F_i(native) — canonical single-residue frustration
+
+
+# ==========================================================================
+# Chain resolution
+# ==========================================================================
+# frustrampnn's alt_parse_PDB matches chains STRICTLY by their letter, so a
+# blank-chain PDB (the norm for ATLAS, and common elsewhere) yields no chain
+# "A" and predict() returns an EMPTY DataFrame -> KeyError('position') downstream.
+# extract_sequence_from_pdb is lenient about this, but the model is not, so we
+# resolve the chain the model should actually read before calling it.
+
+def _pdb_chain_ids(pdb_path: str) -> List[str]:
+    """Distinct chain IDs (PDB column 22) over ATOM/HETATM records, first-seen
+    order. A blank chain is reported as ' ' (single space)."""
+    seen: List[str] = []
+    with open(pdb_path) as fh:
+        for line in fh:
+            if line.startswith(("ATOM", "HETATM")) and len(line) > 21:
+                c = line[21]
+                if c not in seen:
+                    seen.append(c)
+    return seen
+
+
+def _resolve_chain_and_path(pdb_path: str, requested: str
+                            ) -> Tuple[str, str, Optional[str]]:
+    """Return (path_to_use, chain_to_use, tmp_path_or_None).
+
+    Resolution order:
+      - requested chain present            -> use PDB as-is.
+      - blank chain present (requested not) -> relabel the blank chain to the
+                                              requested letter in a temp PDB so
+                                              alt_parse_PDB can match it.
+      - otherwise                          -> fall back to the first chain present.
+    The caller MUST os.unlink() the returned tmp path (if not None) when done.
+    """
+    chains = _pdb_chain_ids(pdb_path)
+    if requested in chains:
+        return pdb_path, requested, None
+    if " " in chains:
+        fd, tmp = tempfile.mkstemp(suffix=".pdb", prefix="frust_chain_")
+        with os.fdopen(fd, "w") as out, open(pdb_path) as fh:
+            for line in fh:
+                if (line.startswith(("ATOM", "HETATM"))
+                        and len(line) > 21 and line[21] == " "):
+                    line = line[:21] + requested + line[22:]
+                out.write(line)
+        return tmp, requested, tmp
+    if chains:
+        return pdb_path, chains[0], None
+    return pdb_path, requested, None
 
 
 # ==========================================================================
@@ -141,9 +193,26 @@ class FrustraMPNNScorer:
         chain = chain_id or self._chain_id
         L = len(seq)
 
+        # Resolve the chain the model can actually match (handles blank chains).
+        use_path, use_chain, tmp = _resolve_chain_and_path(pdb_path, chain)
+
         # frustrampnn returns a long-format DataFrame with columns:
         #   frustration_pred, position (0-indexed), wildtype, mutation, pdb, chain
-        df = self._model.predict(pdb_path, chains=[chain], show_progress=False)
+        try:
+            df = self._model.predict(use_path, chains=[use_chain],
+                                     show_progress=False)
+        finally:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+
+        if df is None or len(df) == 0 or "position" not in df.columns:
+            raise ValueError(
+                f"FrustraMPNN returned no rows for chain '{use_chain}' "
+                f"(present chains: {_pdb_chain_ids(pdb_path)}). "
+                "Check chain matching / that the PDB has standard residues.")
 
         # Pivot long -> dense (L, 20) in AA_LIST order.
         full = np.full((L, N_AA), np.nan, dtype=np.float32)
