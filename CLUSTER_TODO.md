@@ -31,8 +31,11 @@ Mechanistic reframe + complementary predictor. Does NOT fix circularity.
       (c60206a: relabel blank chain in compute_frustration._resolve_chain_and_path).
 - [x] **B3** paper_config.py: added `frustrampnn`,`frustrampnn_native` to
       atlas/bbflow/pdb_designs/rci_s2/relaxdb available_scorers + TABLE1_PREDICTORS (596a962).
-- [ ] **B4** compute (GPU arrays): atlas `--array=0-38`; bbflow `0-1`; pdb_designs `0-6`;
-      rci_s2 `0-15`; relaxdb `0-2`  (see plan for the FRUST_INPUT_DIR/OUTPUT_DIR env vars)
+- [~] **B4** compute (GPU arrays) — LAUNCHED 2026-07-10. Canary (atlas --array=0,
+      50 proteins) COMPLETED clean: processed=50 failed=0. Full sweep submitted:
+      atlas 45455298_[1-38], bbflow 45455299, pdb_designs 45455300, rci_s2 45455301,
+      relaxdb 45455302. ~53 s/protein → ~40 min/task. Spot-check non-ATLAS dataset
+      counts climb >0 (different PDB chain conventions). Resume-safe (--skip_existing).
 - [ ] **B5** `python scripts/run_all_analyses.py` (submits only the new frustration runs)
 - [ ] **B6** wait, then `python scripts/run_all_analyses.py --postprocess-only`
 - [ ] **VERIFY:** ρ(F_native, dynamics) vs ρ(sd(ΔΔG), dynamics) head-to-head; partial
