@@ -22,13 +22,15 @@ never executed. No new compute — packing is computed inside the correlation jo
 ## B. FrustraMPNN frustration  (NEW code, committed 488b013)
 Mechanistic reframe + complementary predictor. Does NOT fix circularity.
 
-- [ ] **B0** env: `bash scripts/slurm/0b_setup_frustrampnn_env.sh`
-- [ ] **B1** checkpoint → `$FRUSTRAMPNN_CHECKPOINT` (Zenodo 10.5281/zenodo.17978321)
-- [ ] **B2** ⚠️ SMOKE TEST on 1 PDB (validates the inferred predict() schema).
-      Check: no wildtype-mismatch WARN; `frustrampnn_native` std_ddg = real F_native
-      (not all-NaN). If either fails → ping Claude (1-line fix in predict_profile).
-- [ ] **B3** paper_config.py: add `"frustrampnn","frustrampnn_native"` to
-      available_scorers of atlas/bbflow/pdb_designs/rci_s2/relaxdb + to TABLE1_PREDICTORS
+- [x] **B0** env: `bash scripts/slurm/0b_setup_frustrampnn_env.sh` — done
+- [x] **B1** checkpoint → `$FRUSTRAMPNN_CHECKPOINT` — done. NOTE: also needed the base
+      ProteinMPNN vanilla weights at `$(dirname checkpoint)/vanilla_model_weights/v_48_020.pt`
+      (6.4 MB, wget from dauparas/ProteinMPNN) — not bundled in the Zenodo checkpoint.
+- [x] **B2** ⚠️ SMOKE TEST — PASSED 2026-07-10 (job 45454934). Fixed two bugs first:
+      (a) ls|head pipefail (50eabc9), (b) blank-chain PDBs → empty predict() frame
+      (c60206a: relabel blank chain in compute_frustration._resolve_chain_and_path).
+- [x] **B3** paper_config.py: added `frustrampnn`,`frustrampnn_native` to
+      atlas/bbflow/pdb_designs/rci_s2/relaxdb available_scorers + TABLE1_PREDICTORS (596a962).
 - [ ] **B4** compute (GPU arrays): atlas `--array=0-38`; bbflow `0-1`; pdb_designs `0-6`;
       rci_s2 `0-15`; relaxdb `0-2`  (see plan for the FRUST_INPUT_DIR/OUTPUT_DIR env vars)
 - [ ] **B5** `python scripts/run_all_analyses.py` (submits only the new frustration runs)
