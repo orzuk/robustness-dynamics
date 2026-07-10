@@ -44,11 +44,16 @@ Mechanistic reframe + complementary predictor. Does NOT fix circularity.
 ## C. MegaScale experimental ΔΔG  (INVENTORY-FIRST gate — target is B-factor, NOT RMSF)
 MegaScale has no MD → dynamics target is crystal B-factor, only for natural proteins
 with an X-ray structure. Count usable proteins BEFORE investing. (Plan Track C.)
-- [ ] **C0** run the 2 inventory commands (no GPU, minutes): `preprocess_megascale.py`
-      + `megascale_atlas_overlap.py`
-- [ ] report back: Route-2 ATLAS∩MegaScale overlap count; Route-1 #natural proteins ≥100 variants
-- [ ] GO/NO-GO: overlap ≳30–40 → RMSF version; else Route-1 ≥20 → B-factor version; else shelve
-- [ ] (HELD until GO) code unification + full preprocess→correlate→table run
+- [x] **C0** inventory DONE (2026-07-10). Route-2 ATLAS∩MegaScale overlap = **4** (NO-GO
+      for RMSF). Route-1 naturals with ≥100 variants = **480** (GO for B-factor).
+- [x] GO/NO-GO: **GO on ROUTE 1** (exp. ΔΔG × crystal B-factor, packing-controlled).
+      Route 2 (RMSF) shelved. NOTE: 480 is an upper bound — must filter to X-ray
+      structures with real B-factors (several MegaScale naturals are NMR). Size the
+      X-ray subset next; expect the usable n to be lower (~200-300).
+- [ ] (UNLOCKED — Route 1) code unification of experimental ΔΔG into shared
+      robustness/regression path + preprocess_megascale_natural.py (needs internet
+      for PDB B-factor download) → run_all_analyses picks up megascale/experimental/
+      bfactor → postprocess → dedicated small results table (not a Table-1 row).
 
 ---
 
