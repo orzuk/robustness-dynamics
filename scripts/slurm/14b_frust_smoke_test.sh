@@ -34,7 +34,14 @@ cd "${REPO_DIR}"
 echo "Node: $(hostname)  GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo N/A)"
 echo "Checkpoint: ${FRUSTRAMPNN_CHECKPOINT}"
 
-PDB=$(ls ${ATLAS_DIR}/proteins/*/*.pdb | head -1)
+# pick one PDB without tripping pipefail (ls|head gives ls a SIGPIPE -> nonzero)
+shopt -s nullglob
+_pdbs=(${ATLAS_DIR}/proteins/*/*.pdb)
+PDB="${_pdbs[0]:-}"
+if [[ -z "${PDB}" ]]; then
+    echo "ERROR: no ATLAS pdb found under ${ATLAS_DIR}/proteins/*/*.pdb"
+    exit 1
+fi
 echo "Test PDB: ${PDB}"
 OUT=/tmp/frust_smoke_${SLURM_JOB_ID:-manual}
 
