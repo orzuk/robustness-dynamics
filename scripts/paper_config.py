@@ -125,6 +125,8 @@ DATASETS = {
         analysis_dir=f"{CLUSTER.project_dir}/data/atlas_analysis",
         dataset_type="natural",
         available_targets=["rmsf", "bfactor"],
+        available_scorers=["esm1v", "thermompnn", "proteinmpnn",
+                           "frustrampnn", "frustrampnn_native"],
         n_proteins_approx=1928,
     ),
     "bbflow": Dataset(
@@ -135,6 +137,8 @@ DATASETS = {
         analysis_dir=f"{CLUSTER.project_dir}/data/bbflow_analysis",
         dataset_type="designed",
         available_targets=["rmsf"],
+        available_scorers=["esm1v", "thermompnn", "proteinmpnn",
+                           "frustrampnn", "frustrampnn_native"],
         n_proteins_approx=100,
     ),
     "pdb_designs": Dataset(
@@ -145,7 +149,8 @@ DATASETS = {
         analysis_dir=f"{CLUSTER.project_dir}/data/pdb_designs_analysis",
         dataset_type="designed",
         available_targets=["bfactor"],
-        available_scorers=["esm1v", "thermompnn", "proteinmpnn"],
+        available_scorers=["esm1v", "thermompnn", "proteinmpnn",
+                           "frustrampnn", "frustrampnn_native"],
         n_proteins_approx=306,
         bfactor_only=True,
         has_plddt=True,  # pLDDT from ESMFold predictions
@@ -178,7 +183,8 @@ DATASETS = {
         analysis_dir=f"{CLUSTER.project_dir}/data/rci_s2_analysis",
         dataset_type="natural",
         available_targets=["bfactor"],  # stores 1 - rciS2 as "bfactor"
-        available_scorers=["esm1v", "thermompnn", "proteinmpnn"],
+        available_scorers=["esm1v", "thermompnn", "proteinmpnn",
+                           "frustrampnn", "frustrampnn_native"],
         n_proteins_approx=762,
         bfactor_only=True,
         has_plddt=True,  # AF2 pLDDT from Gavalda-Garcia dataset
@@ -191,7 +197,8 @@ DATASETS = {
         analysis_dir=f"{CLUSTER.project_dir}/data/relaxdb_analysis",
         dataset_type="natural",
         available_targets=["bfactor"],  # stores 1 - hetNOE as "bfactor"
-        available_scorers=["esm1v", "thermompnn", "proteinmpnn"],
+        available_scorers=["esm1v", "thermompnn", "proteinmpnn",
+                           "frustrampnn", "frustrampnn_native"],
         n_proteins_approx=143,
         bfactor_only=True,
         has_plddt=True,
@@ -403,7 +410,8 @@ TABLE1_COLUMNS_ALL = TABLE1_COLUMNS + NMR_COLUMNS
 # "packing" = WCN (weighted contact number); added as the canonical local-density
 # baseline in response to the Genetics review (R1: "the direct test, comparing
 # sd(ΔΔG) against a packing descriptor such as contact number, is absent").
-TABLE1_PREDICTORS = ["esm1v", "thermompnn", "proteinmpnn", "plddt", "sasa", "packing"]
+TABLE1_PREDICTORS = ["esm1v", "thermompnn", "proteinmpnn", "plddt", "sasa", "packing",
+                     "frustrampnn", "frustrampnn_native"]
 
 # Table 2 strata
 TABLE2_SS_STRATA = ["H", "E", "C"]
