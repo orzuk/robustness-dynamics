@@ -28,6 +28,7 @@ Usage:
 """
 
 import os
+import sys
 import json
 import argparse
 import warnings
@@ -38,6 +39,30 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+# Reuse the correlation pipeline's PDB cleanup: mdtraj's C extensions (notably
+# shrake_rupley) call exit() — a hard, uncatchable process crash — when two
+# atoms share coordinates. Some PDB-design structures trip this. Cleaning the
+# PDB first (dedup atoms, drop altlocs) is what the correlation pipeline does.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+from correlate_robustness_dynamics import _clean_pdb_for_mdtraj  # noqa: E402
+
+
+def _load_clean_traj(pdb_path: str):
+    """mdtraj.load on a cleaned copy of the PDB so the C extensions don't
+    hard-exit() on duplicate/overlapping atoms. Removes the temp file after."""
+    import mdtraj
+    clean = _clean_pdb_for_mdtraj(pdb_path)
+    try:
+        return mdtraj.load(clean)
+    finally:
+        try:
+            os.unlink(clean)
+        except OSError:
+            pass
+
 
 # Canonical amino acid ordering (matches compute_robustness.py)
 AA_LIST = "ACDEFGHIKLMNPQRSTVWY"
@@ -143,7 +168,7 @@ def compute_sasa(pdb_path: str, chain_id: Optional[str] = None) -> Optional[np.n
     """
     try:
         import mdtraj
-        traj = mdtraj.load(pdb_path)
+        traj = _load_clean_traj(pdb_path)
         sasa_per_atom = mdtraj.shrake_rupley(traj, mode='atom')
         sasa_per_residue = np.zeros(traj.topology.n_residues)
         for atom in traj.topology.atoms:
@@ -181,7 +206,7 @@ def compute_packing(pdb_path: str, chain_id: Optional[str] = None) -> Optional[n
     """
     try:
         import mdtraj
-        traj = mdtraj.load(pdb_path)
+        traj = _load_clean_traj(pdb_path)
         top = traj.topology
         # Per residue: Cβ if present, else Cα (glycine). Skip residues with
         # neither (waters, ligands).
