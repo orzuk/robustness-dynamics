@@ -145,12 +145,32 @@ individual residues post-hoc.
 - MegaScale exp ΔΔG × B-factor (n=38): ρ=−0.33, partial|WCN=−0.05, ΔR²=3e-6.
 - ATLAS ThermoMPNN ΔΔG × RMSF (n≈1900): ρ=−0.50, partial|WCN=−0.18, ΔR²=0.012.
 
-### Frustration (fill in AFTER B5/B6 — leave blank until then)
-- Sign check (§1): _pending (F_native vs RMSF must be NEGATIVE)_
-- ρ(frust_native, sd(ΔΔG)) per protein — redundancy check (~0.9 redundant, ~0.5 distinct): __
-- ATLAS RMSF: ρ(frust_native) = __ , partial|WCN = __  (must beat −0.18)
-- BBFlow RMSF: __
-- B-factor sets (must beat −0.05): __
-- NMR (RCI-S², RelaxDB hetNOE / R2 / R2R1): __
-- Outcome (A/B/C per §2): __
-- Case studies (per §4): __
+### Frustration RESULTS (2026-07-11) — frustrampnn_native (the meaningful view)
+- Sign check (§1): PASS — all raw ρ negative.
+- Frustration is NOT a packing proxy (validates "conflict not density"): ρ(frust,packing)
+  ≈ 0.11–0.19 everywhere, vs sd(ΔΔG)'s 0.45. Genuinely a different quantity.
+- ATLAS RMSF: raw −0.13, partial|WCN = **+0.016** → COLLAPSES to zero. FAILS −0.18 bar.
+- ATLAS bfactor: raw −0.10, partial +0.016 → collapses.
+- BBFlow RMSF: raw −0.28, partial −0.000 → collapses.
+- RCI-S2: raw −0.11, partial +0.011 → fails. RelaxDB: raw −0.06, partial +0.065 → fails.
+- **PDB-designs (the ONE positive): raw −0.19, partial|WCN = −0.167 → SURVIVES.**
+  Real, not artifact: packing IS a predictor there (ρ(packing,dyn)=−0.30) but
+  ρ(frust,packing)=0.107 (orthogonal), so partial holds. Beats sd(ΔΔG) on designs
+  (thermompnn partial −0.116, ρ(sdΔΔG,packing)=0.45).
+
+**OUTCOME = C (frustration not an independent predictor on natural sets) + a modest,
+mechanistically-coherent positive on DESIGNS.** Two readings, both good for the paper:
+1. Triangulation: experimental ΔΔG (MegaScale −0.05) AND physics frustration (+0.016)
+   both collapse to ~0 under packing on natural proteins → the ThermoMPNN −0.18 residual
+   is ML circularity; true natural-protein signal beyond packing ≈ 0. Three independent
+   lines now support the packing conclusion.
+2. Designs subsection: frustration adds packing-independent flexibility signal (−0.167)
+   that sd(ΔΔG) can't, because designs are packing-idealized/over-optimized (FrustraMPNN
+   §60) and frustration isn't a packing proxy. Modest (one B-factor set) — a subsection,
+   not a headline.
+
+- Redundancy ρ(frust_native, sd(ΔΔG)) not computed directly, but inferred distinct:
+  frust~0.1–0.2 packing-corr vs sdΔΔG 0.45 → clearly different quantities.
+- Case studies (per §4): TODO after framing locked.
+- RelaxDB R2/R2R1 slow-exchange test: NOT run (virtual datasets skipped by submitter);
+  optional manual follow-up.
